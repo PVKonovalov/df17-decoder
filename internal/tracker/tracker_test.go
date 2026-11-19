@@ -3,6 +3,7 @@ package tracker
 import (
 	"encoding/hex"
 	"math"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -236,5 +237,23 @@ func TestTracker_SurfacePosition(t *testing.T) {
 	}
 	if got := st.Positions.Load(); got != 2 {
 		t.Errorf("positions = %d, want 2", got)
+	}
+}
+
+func TestTracker_TargetState(t *testing.T) {
+	tr, _, _ := newTestTracker(t)
+	feed(t, tr, t0, "8DA05629EA21485CBF3F8CADAEEB")
+	a, ok := tr.Get(0xA05629)
+	if !ok {
+		t.Fatal("aircraft missing")
+	}
+	if a.SelectedAlt == nil || *a.SelectedAlt != 16992 || a.SelectedAltSource != "mcp" || a.BaroSetting == nil || *a.BaroSetting != 1012.8 ||
+		a.SelectedHeading == nil || *a.SelectedHeading != 66.8 || !slices.Equal(a.AutopilotModes, []string{"autopilot", "vnav", "lnav", "tcas"}) {
+		t.Errorf("alt=%v src=%q baro=%v hdg=%v modes=%v", a.SelectedAlt, a.SelectedAltSource, a.BaroSetting, a.SelectedHeading, a.AutopilotModes)
+	}
+	snap := tr.Snapshot()[0]
+	snap.AutopilotModes[0] = "changed"
+	if b, _ := tr.Get(0xA05629); b.AutopilotModes[0] != "autopilot" {
+		t.Error("snapshot shares the autopilot modes slice")
 	}
 }

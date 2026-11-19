@@ -21,6 +21,12 @@ export interface Aircraft {
   verticalRate?: number // ft/min
   onGround?: boolean
 
+  selectedAlt?: number // ft, autopilot/FMS target (ADS-B TC 29)
+  selectedAltSource?: string // 'mcp' or 'fms'
+  selectedHeading?: number // degrees
+  baroSetting?: number // hPa, altimeter setting
+  autopilotModes?: string[] // engaged: autopilot, vnav, althold, approach, lnav, tcas
+
   lat?: number
   lon?: number
   posTime?: string // RFC 3339
@@ -55,6 +61,11 @@ export const aircraftKeys = {
   heading: true,
   verticalRate: true,
   onGround: true,
+  selectedAlt: true,
+  selectedAltSource: true,
+  selectedHeading: true,
+  baroSetting: true,
+  autopilotModes: true,
   lat: true,
   lon: true,
   posTime: true,

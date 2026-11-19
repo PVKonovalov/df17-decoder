@@ -167,3 +167,18 @@ func onGround(msg []byte) []byte {
 	setParity(msg, 0)
 	return msg
 }
+
+// targetState: TC 29 subtype 1 with MCP selected altitude (32 ft steps), QNH 1013.6 hPa (the 0.8 hPa step nearest
+// to standard pressure), selected heading and
+// autopilot, VNAV, LNAV and TCAS engaged.
+func targetState(icao uint32, selectedAltFt, headingDeg float64) []byte {
+	alt := uint64(math.Round(selectedAltFt/32)) + 1
+	baro := uint64(math.Round((1013.6-800)/0.8)) + 1
+	hdg := uint64(math.Round(math.Mod(headingDeg+360, 360)*256/180)) % 512
+	return extendedSquitter(icao, fields(56,
+		[2]uint64{29, 5}, [2]uint64{1, 2}, [2]uint64{0, 1}, [2]uint64{0, 1}, [2]uint64{alt, 11}, [2]uint64{baro, 9},
+		[2]uint64{1, 1}, [2]uint64{hdg, 9}, [2]uint64{0, 4}, [2]uint64{0, 1}, [2]uint64{0, 2},
+		[2]uint64{1, 1}, [2]uint64{1, 1}, [2]uint64{1, 1}, [2]uint64{0, 1}, [2]uint64{0, 1}, [2]uint64{0, 1},
+		[2]uint64{1, 1}, [2]uint64{1, 1},
+	))
+}

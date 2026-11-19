@@ -178,6 +178,18 @@ func (a *aircraft) move(o options, dt float64) {
 	}
 }
 
+// selectedAltitude is the autopilot target: 4000 ft above or below when climbing or descending (rounded to
+// 1000 ft, within 2000–41000 ft), otherwise the current altitude rounded to 100 ft.
+func (a *aircraft) selectedAltitude() float64 {
+	switch {
+	case a.vr > 0:
+		return min(math.Round((a.alt+4000)/1000)*1000, 41000)
+	case a.vr < 0:
+		return max(math.Round((a.alt-4000)/1000)*1000, 2000)
+	}
+	return math.Round(a.alt/100) * 100
+}
+
 // frames returns the frames the aircraft transmits on tick n.
 func (a *aircraft) frames(n int) [][]byte {
 	if n < a.start || n >= a.end {
@@ -203,6 +215,9 @@ func (a *aircraft) frames(n int) [][]byte {
 			if a.emergency {
 				out = append(out, emergencyStatus(a.icao, 1, a.squawk))
 			}
+		}
+		if (n+a.phase)%a.identEvery == 5 {
+			out = append(out, targetState(a.icao, a.selectedAltitude(), a.track))
 		}
 		return out
 	}

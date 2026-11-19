@@ -11,6 +11,20 @@ export function trackerUrl(icao: string): string {
 const fixed = (v: number | undefined, digits: number, unit = '') =>
   v === undefined ? undefined : `${v.toFixed(digits)}${unit}`
 const ft = (v: number | undefined) => (v === undefined ? undefined : `${v.toLocaleString('en-US')} ft`)
+const MODE_LABELS: Record<string, string> = {
+  autopilot: 'AP',
+  vnav: 'VNAV',
+  althold: 'ALT HOLD',
+  approach: 'APPR',
+  lnav: 'LNAV',
+  tcas: 'TCAS',
+}
+const selectedAlt = (a: Aircraft) =>
+  a.selectedAlt === undefined
+    ? undefined
+    : `${a.selectedAlt.toLocaleString('en-US')} ft${a.selectedAltSource === undefined ? '' : ` (${a.selectedAltSource.toUpperCase()})`}`
+const autopilot = (modes: string[] | undefined) =>
+  modes === undefined ? undefined : modes.map((m) => MODE_LABELS[m] ?? m).join(' · ') || 'none engaged'
 const time = (iso: string | undefined) => (iso === undefined ? undefined : new Date(iso).toLocaleTimeString())
 
 /** detailRows lists every known field of the aircraft as [label, value]; unknown fields are left out. */
@@ -32,6 +46,10 @@ export function detailRows(a: Aircraft): [string, ReactNode][] {
     ['IAS', a.ias === undefined ? undefined : `${a.ias} kt`],
     ['TAS', a.tas === undefined ? undefined : `${a.tas} kt`],
     ['Vertical rate', a.verticalRate === undefined ? undefined : `${fmtVerticalRate(a.verticalRate)} ft/min`],
+    ['Selected altitude', selectedAlt(a)],
+    ['Selected heading', fixed(a.selectedHeading, 1, '°')],
+    ['Altimeter', fixed(a.baroSetting, 1, ' hPa')],
+    ['Autopilot', autopilot(a.autopilotModes)],
     ['Position', a.lat === undefined || a.lon === undefined ? undefined : `${a.lat.toFixed(4)}, ${a.lon.toFixed(4)}`],
     ['Position time', time(a.posTime)],
     ['Distance', fixed(a.distanceNm, 1, ' nm')],

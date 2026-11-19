@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -26,6 +27,12 @@ type Aircraft struct {
 	VerticalRate *int     `json:"verticalRate,omitempty"` // ft/min
 	OnGround     *bool    `json:"onGround,omitempty"`
 
+	SelectedAlt       *int     `json:"selectedAlt,omitempty"`       // ft, from TC 29
+	SelectedAltSource string   `json:"selectedAltSource,omitempty"` // "mcp" or "fms"
+	SelectedHeading   *float64 `json:"selectedHeading,omitempty"`   // degrees
+	BaroSetting       *float64 `json:"baroSetting,omitempty"`       // hPa
+	AutopilotModes    []string `json:"autopilotModes,omitempty"`    // engaged: autopilot, vnav, althold, approach, lnav, tcas
+
 	Lat        *float64   `json:"lat,omitempty"`
 	Lon        *float64   `json:"lon,omitempty"`
 	PosTime    *time.Time `json:"posTime,omitempty"`
@@ -45,5 +52,6 @@ type Aircraft struct {
 func (a *Aircraft) clone() Aircraft {
 	c := *a
 	c.MessagesByDF = maps.Clone(a.MessagesByDF)
+	c.AutopilotModes = slices.Clone(a.AutopilotModes)
 	return c
 }

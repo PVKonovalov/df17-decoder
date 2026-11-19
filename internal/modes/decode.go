@@ -46,6 +46,7 @@ type Message struct {
 	SurfacePosition   *SurfacePosition
 	Velocity          *Velocity
 	AircraftStatus    *AircraftStatus
+	TargetState       *TargetState
 	OperationalStatus *OperationalStatus
 	AllCall           *AllCall
 	Surveillance      *Surveillance
@@ -153,6 +154,12 @@ func decodeExtendedSquitter(msg []byte, m Message, opt Options) (Message, error)
 			return m, err
 		}
 		m.AircraftStatus = &s
+	case m.TC == 29:
+		ts, err := decodeTargetState(msg)
+		if err != nil {
+			return m, err
+		}
+		m.TargetState = &ts
 	case m.TC == 31:
 		s, err := decodeOperationalStatus(msg)
 		if err != nil {

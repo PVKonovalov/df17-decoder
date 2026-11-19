@@ -35,6 +35,17 @@ describe('DetailPanel', () => {
     expect(rows.Emergency).toBe('general')
     expect(rows['Vertical rate']).toBe('↓ 640 ft/min')
     expect(rows.RSSI).toBe('-12.3 dBFS')
+    expect(rows['Selected altitude']).toBe('4,992 ft (MCP)')
+    expect(rows['Selected heading']).toBe('120.2°')
+    expect(rows.Altimeter).toBe('1013.6 hPa')
+    expect(rows.Autopilot).toBe('AP · VNAV · LNAV · TCAS')
+  })
+
+  it('shows the autopilot row when modes are known but none is engaged', () => {
+    const rows = Object.fromEntries(detailRows({ ...minimal, autopilotModes: [], selectedAlt: 35000, selectedAltSource: 'fms' }))
+    expect(rows.Autopilot).toBe('none engaged')
+    expect(rows['Selected altitude']).toBe('35,000 ft (FMS)')
+    expect(Object.fromEntries(detailRows(minimal)).Autopilot).toBeUndefined()
   })
 
   it('links to the external tracker and closes', () => {

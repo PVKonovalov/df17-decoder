@@ -139,6 +139,10 @@ func populate(t *testing.T, v reflect.Value) {
 		populate(t, e)
 		m.SetMapIndex(k, e)
 		v.Set(m)
+	case reflect.Slice:
+		s := reflect.MakeSlice(v.Type(), 1, 1)
+		populate(t, s.Index(0))
+		v.Set(s)
 	default:
 		t.Fatalf("populate: unhandled kind %s (%s); extend populate", v.Kind(), v.Type())
 	}

@@ -3,6 +3,7 @@ package tracker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"sync"
@@ -161,6 +162,9 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 			t.setSquawk(a, s.Squawk, false)
 		}
 	}
+	if ts := m.TargetState; ts != nil {
+		t.updateTargetState(a, ts)
+	}
 	if s := m.OperationalStatus; s != nil && (a.ADSBVersion == nil || *a.ADSBVersion != s.Version) {
 		a.ADSBVersion = new(s.Version)
 		t.opt.Logger.Debug("operational status", "icao", a.ICAO, "adsbVersion", s.Version, "surface", s.Surface)
@@ -234,6 +238,44 @@ func (t *Tracker) updateVelocity(a *Aircraft, v *modes.Velocity) {
 		attrs = append(attrs, "verticalRate", *v.VerticalRate)
 	}
 	t.opt.Logger.Debug("velocity", attrs...)
+}
+
+// updateTargetState applies TC 29 values that are present and logs at debug level when any of them changes.
+func (t *Tracker) updateTargetState(a *Aircraft, ts *modes.TargetState) {
+	state := func() []any {
+		return []any{"selectedAlt", val(a.SelectedAlt), "source", a.SelectedAltSource, "selectedHeading", val(a.SelectedHeading),
+			"baro", val(a.BaroSetting), "modes", a.AutopilotModes}
+	}
+	before := fmt.Sprint(state()...)
+	if ts.SelectedAltitude != nil {
+		a.SelectedAlt = ts.SelectedAltitude
+		a.SelectedAltSource = "mcp"
+		if ts.SelectedAltitudeFMS {
+			a.SelectedAltSource = "fms"
+		}
+	}
+	if ts.SelectedHeading != nil {
+		a.SelectedHeading = new(round(*ts.SelectedHeading, 1))
+	}
+	if ts.BaroSetting != nil {
+		a.BaroSetting = new(round(*ts.BaroSetting, 1))
+	}
+	if ts.Modes != nil {
+		a.AutopilotModes = ts.Modes.Names()
+	}
+	if t.opt.Logger.Enabled(context.Background(), slog.LevelDebug) {
+		if after := state(); fmt.Sprint(after...) != before {
+			t.opt.Logger.Debug("target state", append([]any{"icao", a.ICAO}, after...)...)
+		}
+	}
+}
+
+// val returns *p, or nil when p is nil.
+func val[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // updatePosition applies a resolved position (pos, err) to the aircraft, counts the outcome and logs the first fix

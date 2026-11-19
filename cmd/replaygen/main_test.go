@@ -50,6 +50,18 @@ func TestEncoders_RoundTrip(t *testing.T) {
 		t.Errorf("status: %+v", s)
 	}
 
+	ts := decode(t, targetState(icao, 35000, 271)).TargetState
+	if ts == nil || math.Abs(float64(*ts.SelectedAltitude-35000)) > 16 || ts.SelectedAltitudeFMS || math.Abs(*ts.BaroSetting-1013.6) > 1e-9 ||
+		math.Abs(*ts.SelectedHeading-271) > 0.36 || ts.Modes == nil || !ts.Modes.Autopilot || !ts.Modes.VNAV || !ts.Modes.LNAV || !ts.Modes.TCAS ||
+		ts.Modes.AltitudeHold || ts.Modes.Approach {
+		t.Errorf("target state: %+v %+v", ts, ts.Modes)
+	}
+	for _, c := range []struct{ alt, vr, want float64 }{{10200, 1500, 14000}, {39500, 2000, 41000}, {6300, -1200, 2000}, {20000, -800, 16000}, {35040, 0, 35000}} {
+		if got := (&aircraft{alt: c.alt, vr: c.vr}).selectedAltitude(); got != c.want {
+			t.Errorf("selectedAltitude(alt %v, vr %v) = %v, want %v", c.alt, c.vr, got, c.want)
+		}
+	}
+
 	if m := decode(t, allCall(icao)); m.DF != 11 || m.ICAO != icao {
 		t.Errorf("all-call: DF%d %06X", m.DF, m.ICAO)
 	}

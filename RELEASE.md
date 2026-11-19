@@ -24,3 +24,4 @@
 - 2026-11-19: Privacy — receiver location removed from defaults, example config, replaygen, docs and tests (neutral 25.07, 22.87).
 - 2026-11-19: Surface positions (TC 5–8): local surface CPR (≤45 NM), taxi speed, track, on-ground; replaygen -taxiing; map legend ground/unknown swatches.
 - 2026-11-19: Version from git tag (-version, startup log, /api/stats, UI title); make dist (Pi/Linux static builds); systemd unit; Dockerfile + make docker.
+- 2026-11-19: Target state (TC 29): selected altitude (MCP/FMS), heading, altimeter, autopilot modes in API and detail panel; replaygen sends TC 29.

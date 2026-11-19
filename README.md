@@ -9,7 +9,7 @@ What it decodes:
 
 - **DF17/18 extended squitter:** callsign and emitter category, barometric and GNSS altitude, airborne position
   (global and local CPR), surface position with taxi speed and track (decoded against the receiver within 45 NM),
-  velocity (ground speed or airspeed with heading, vertical rate), emergency state and
+  target state (autopilot/FMS selected altitude and heading, altimeter setting, autopilot modes), velocity (ground speed or airspeed with heading, vertical rate), emergency state and
   squawk, ADS-B version.
 - **Non-ADS-B Mode S:**
   - DF11 all-call replies.
@@ -197,7 +197,7 @@ there's nothing else to deploy.
 - **New aircraft:** rows of aircraft first seen in the last 30 s are highlighted in amber, fading out, and
   their map marker pulses briefly when it appears.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
-  known field, and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+  known field (including the selected altitude and heading, altimeter setting and autopilot modes), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
   shows the aircraft count, messages per second, the receiver source status and the connection state. The
   page reconnects with backoff by itself.

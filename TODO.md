@@ -4,7 +4,6 @@ Candidate improvements, roughly by value. Move items to RELEASE.md when done.
 
 ## Decoding
 
-- [ ] **Target state and status (TC 29):** selected altitude and heading (autopilot/FMS), shown in the detail panel.
 - [ ] **More Comm-B registers:** BDS 4,0 (selected altitude), 5,0 (roll, track, ground speed, TAS), 6,0 (heading,
       IAS, Mach, vertical rate) for Mode-S-only aircraft. Only BDS 2,0 (callsign) is decoded today.
 
