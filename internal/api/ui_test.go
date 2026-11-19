@@ -63,6 +63,7 @@ func TestUI(t *testing.T) {
 		cache        string
 	}{
 		{"GET", "/", 200, "<html>app</html>", "no-cache"},
+		{"GET", "/?icao=738ABC&q=ELY&pos=1&sort=-altitude", 200, "<html>app</html>", "no-cache"},
 		{"GET", "/aircraft/738ABC", 200, "<html>app</html>", "no-cache"},
 		{"GET", "/assets", 200, "<html>app</html>", "no-cache"},
 		{"GET", "/../../etc/passwd", 307, "", ""}, // ServeMux redirects to the cleaned path

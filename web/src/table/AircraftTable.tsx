@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type D
 import type { Aircraft } from '../api/types'
 import { aircraftAltitude, dataNow } from '../map/style'
 import type { Action } from '../state/reducer'
+import { parseUrl, replaceUrl } from '../state/url'
 import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, newAgeMs, visibleRows, type ColumnId, type Filter } from './rows'
 
 const features = tableFeatures({ rowSortingFeature })
@@ -99,12 +100,18 @@ interface Props {
  * positions-only toggle. Emergencies are pinned on top. Clicking a row selects it and pans the map.
  */
 export function AircraftTable({ aircraft, selected, dispatch }: Props) {
-  const [filter, setFilter] = useState<Filter>({ text: '', withPosition: false })
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'distance', desc: false }])
+  const [initial] = useState(() => parseUrl(window.location.search))
+  const [filter, setFilter] = useState<Filter>(initial.filter)
+  const [sorting, setSorting] = useState<SortingState>([initial.sort])
   const now = useDataNow(aircraft)
   const hasRssi = useMemo(() => [...aircraft.values()].some((a) => a.rssi !== undefined), [aircraft])
 
   const sort = sorting[0]
+  const sortId = sort?.id as ColumnId | undefined
+  const sortDesc = sort?.desc ?? false
+  useEffect(() => {
+    replaceUrl({ filter, ...(sortId === undefined ? {} : { sort: { id: sortId, desc: sortDesc } }) })
+  }, [filter, sortId, sortDesc])
   const rows = visibleRows(aircraft.values(), filter, sort ? { id: sort.id as ColumnId, desc: sort.desc } : null, now)
 
   const table = useTable({

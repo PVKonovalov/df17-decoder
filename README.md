@@ -225,6 +225,10 @@ there's nothing else to deploy.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
   known field (including the selected altitude and heading, altimeter setting, autopilot modes, roll and
   Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+- **Shareable links:** the address bar follows the selection and the table's filter and sort, e.g.
+  `/?icao=738ABC&q=ELY&pos=1&sort=-altitude` (`-` sorts descending; defaults are left out). Opening such a
+  link selects the aircraft and pans to it as soon as it is heard. **Copy link** in the detail panel copies
+  the address, also over plain http on a LAN address.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
   shows the aircraft count, messages per second, the receiver source status and the connection state. The
   page reconnects with backoff by itself.

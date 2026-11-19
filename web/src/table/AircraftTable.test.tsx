@@ -34,7 +34,10 @@ const scrollIntoView = vi.fn()
 beforeAll(() => {
   Element.prototype.scrollIntoView = scrollIntoView
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.history.replaceState(null, '', '/')
+})
 
 function setup(selected: string | null = null) {
   const dispatch = vi.fn<(a: Action) => void>()
@@ -110,5 +113,16 @@ describe('AircraftTable', () => {
     expect(row?.className).toContain('selected')
     expect(scrollIntoView).toHaveBeenCalled()
     expect(screen.queryByRole('columnheader', { name: /RSSI/ })).toBeNull()
+  })
+
+  it('starts from the filter and sort in the URL and writes changes back', () => {
+    window.history.replaceState(null, '', '/?q=73800&pos=1&sort=-altitude')
+    setup()
+    expect(screen.getByRole<HTMLInputElement>('searchbox', { name: 'Filter' }).value).toBe('73800')
+    expect(rowIcaos()).toEqual(['738002', '738001'])
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter' }), { target: { value: '' } })
+    expect(window.location.search).toBe('?pos=1&sort=-altitude')
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(window.location.search).toBe('?sort=-altitude')
   })
 })

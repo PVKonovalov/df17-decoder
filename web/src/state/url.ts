@@ -1,0 +1,69 @@
+import { COLUMN_IDS, DEFAULT_SORT, type ColumnId, type Filter, type Sort } from '../table/rows'
+
+/** UrlState is what a shareable link carries: the selected aircraft and the table's filter and sort. */
+export interface UrlState {
+  icao: string | null
+  filter: Filter
+  sort: Sort
+}
+
+const ICAO_RE = /^[0-9A-F]{6}$/
+
+/** normalizeIcao returns raw as an upper-case 6-digit hex ICAO address, or null when it isn't one. */
+export function normalizeIcao(raw: string | null): string | null {
+  const v = raw?.trim().toUpperCase() ?? ''
+  return ICAO_RE.test(v) ? v : null
+}
+
+/**
+ * parseUrl reads a query string: icao=738ABC, q=<filter text>, pos=1 (with position only) and
+ * sort=<column> or sort=-<column> (descending). Missing or invalid values give the defaults.
+ */
+export function parseUrl(search: string): UrlState {
+  const p = new URLSearchParams(search)
+  const rawSort = p.get('sort') ?? ''
+  const desc = rawSort.startsWith('-')
+  const id = COLUMN_IDS.find((c) => c === (desc ? rawSort.slice(1) : rawSort))
+  return {
+    icao: normalizeIcao(p.get('icao')),
+    filter: { text: p.get('q') ?? '', withPosition: p.get('pos') === '1' },
+    sort: id === undefined ? DEFAULT_SORT : { id: id satisfies ColumnId, desc },
+  }
+}
+
+/**
+ * urlWith returns search ("" or "?…") with the fields of patch written into it; defaults are left out and
+ * other parameters are kept.
+ */
+export function urlWith(search: string, patch: Partial<UrlState>): string {
+  const p = new URLSearchParams(search)
+  const put = (key: string, value: string | null) => {
+    if (value === null || value === '') {
+      p.delete(key)
+    } else {
+      p.set(key, value)
+    }
+  }
+  if (patch.icao !== undefined) {
+    put('icao', patch.icao)
+  }
+  if (patch.filter !== undefined) {
+    put('q', patch.filter.text)
+    put('pos', patch.filter.withPosition ? '1' : null)
+  }
+  if (patch.sort !== undefined) {
+    const { id, desc } = patch.sort
+    put('sort', id === DEFAULT_SORT.id && desc === DEFAULT_SORT.desc ? null : `${desc ? '-' : ''}${id}`)
+  }
+  const out = p.toString()
+  return out === '' ? '' : `?${out}`
+}
+
+/** replaceUrl writes patch into the page's query string without adding a history entry. */
+export function replaceUrl(patch: Partial<UrlState>): void {
+  const { pathname, search, hash } = window.location
+  const next = urlWith(search, patch)
+  if (next !== search) {
+    window.history.replaceState(window.history.state, '', `${pathname}${next}${hash}`)
+  }
+}

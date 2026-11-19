@@ -94,6 +94,31 @@ describe('selection', () => {
   })
 })
 
+describe('pending selection (shared link)', () => {
+  it('selects the aircraft and pans once a snapshot contains it', () => {
+    let s: State = { ...initialState, pendingSelect: '738002' }
+    s = snap(s, ac('738001'))
+    expect([s.selected, s.pendingSelect, s.panSeq]).toEqual([null, '738002', 0])
+    s = snap(s, ac('738001'), at('738002', T0, 25))
+    expect([s.selected, s.pendingSelect, s.panSeq]).toEqual(['738002', null, 1])
+  })
+
+  it('selects without a pan when the aircraft has no position', () => {
+    const s = snap({ ...initialState, pendingSelect: '738001' }, ac('738001'))
+    expect([s.selected, s.panSeq]).toEqual(['738001', 0])
+  })
+
+  it('is cancelled by a manual selection or clearing', () => {
+    let s = snap({ ...initialState, pendingSelect: '738002' }, ac('738001'))
+    s = reducer(s, { type: 'select', icao: '738001' })
+    expect(snap(s, ac('738001'), ac('738002')).selected).toBe('738001')
+
+    s = reducer({ ...initialState, pendingSelect: '738002' }, { type: 'clearSelection' })
+    expect(s.pendingSelect).toBeNull()
+    expect(snap(s, ac('738002')).selected).toBeNull()
+  })
+})
+
 describe('connection, receiver, stats', () => {
   it('stores the latest values', () => {
     let s = reducer(initialState, { type: 'connection', conn: 'connected' })

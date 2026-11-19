@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode } from 'react'
+import { useEffect, useState, type Dispatch, type ReactNode } from 'react'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
 import { fmtVerticalRate, isEmergency } from '../table/rows'
@@ -70,12 +70,75 @@ export function detailRows(a: Aircraft): [string, ReactNode][] {
   return rows.filter((r): r is [string, ReactNode] => r[1] !== undefined)
 }
 
+/**
+ * copyText puts text on the clipboard: the Clipboard API where the page is a secure context, otherwise a
+ * hidden textarea and execCommand (plain http on a LAN address). Resolves to false when both fail.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.isSecureContext && 'clipboard' in navigator) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the textarea
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.append(area)
+  area.select()
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only copy that works outside a secure context
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    area.remove()
+  }
+}
+
+const COPY_FEEDBACK_MS = 1500
+
+/** CopyLinkButton copies the page URL, which carries the selection and table filters, and briefly confirms. */
+function CopyLinkButton() {
+  const [result, setResult] = useState<'copied' | 'failed' | null>(null)
+  useEffect(() => {
+    if (result === null) {
+      return
+    }
+    const t = setTimeout(() => {
+      setResult(null)
+    }, COPY_FEEDBACK_MS)
+    return () => {
+      clearTimeout(t)
+    }
+  }, [result])
+  return (
+    <button
+      type="button"
+      className="detail-copy"
+      title="Copy a link that opens this aircraft with the current table filters"
+      onClick={() => {
+        void copyText(window.location.href).then((ok) => {
+          setResult(ok ? 'copied' : 'failed')
+        })
+      }}
+    >
+      {result === 'copied' ? 'Copied' : result === 'failed' ? 'Copy failed' : 'Copy link'}
+    </button>
+  )
+}
+
 /** DetailPanel shows all known fields of the selected aircraft. */
 export function DetailPanel({ aircraft, dispatch }: { aircraft: Aircraft; dispatch: Dispatch<Action> }) {
   return (
     <aside className={`detail${isEmergency(aircraft) ? ' emergency' : ''}`} aria-label="Aircraft details">
       <header className="detail-head">
         <h2>{aircraft.callsign ?? aircraft.icao}</h2>
+        <CopyLinkButton />
         <button
           type="button"
           className="detail-close"

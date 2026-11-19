@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import fixture from '../api/aircraft.fixture.json'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
-import { DetailPanel, detailRows, trackerUrl } from './DetailPanel'
+import { copyText, DetailPanel, detailRows, trackerUrl } from './DetailPanel'
 
 afterEach(cleanup)
 
@@ -58,5 +58,36 @@ describe('DetailPanel', () => {
     expect(trackerUrl('738ABC')).toBe('https://globe.adsbexchange.com/?icao=738abc')
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
     expect(dispatch).toHaveBeenCalledWith({ type: 'clearSelection' })
+  })
+})
+
+describe('Copy link', () => {
+  it('copies the page URL with the Clipboard API and confirms', async () => {
+    window.history.replaceState(null, '', '/?icao=738003')
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('isSecureContext', true)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<DetailPanel aircraft={minimal} dispatch={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+    })
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/?icao=738003`)
+    Reflect.deleteProperty(navigator, 'clipboard')
+    vi.unstubAllGlobals()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('falls back to execCommand outside a secure context', async () => {
+    vi.stubGlobal('isSecureContext', false)
+    const exec = vi.fn(() => true)
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true })
+    await expect(copyText('http://pi.local:8080/?icao=738003')).resolves.toBe(true)
+    expect(exec).toHaveBeenCalledWith('copy')
+    expect(document.querySelector('textarea')).toBeNull()
+    exec.mockReturnValue(false)
+    await expect(copyText('x')).resolves.toBe(false)
+    Reflect.deleteProperty(document, 'execCommand')
+    vi.unstubAllGlobals()
   })
 })

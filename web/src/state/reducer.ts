@@ -22,6 +22,7 @@ export interface State {
   aircraft: ReadonlyMap<string, Aircraft> // keyed by ICAO, in server order (sorted by ICAO)
   trails: ReadonlyMap<string, readonly TrailPoint[]>
   selected: string | null
+  pendingSelect: string | null // aircraft to select once a snapshot contains it (from a shared link)
   panSeq: number // incremented when the map should pan to the selection (selection from the table)
 }
 
@@ -46,6 +47,7 @@ export const initialState: State = {
   aircraft: new Map(),
   trails: new Map(),
   selected: null,
+  pendingSelect: null,
   panSeq: 0,
 }
 
@@ -69,15 +71,23 @@ export function reducer(state: State, action: Action): State {
       if (!state.aircraft.has(action.icao)) {
         return state
       }
-      return { ...state, selected: action.icao, panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq }
+      return {
+        ...state,
+        selected: action.icao,
+        pendingSelect: null,
+        panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq,
+      }
     case 'clearSelection':
-      return state.selected === null ? state : { ...state, selected: null }
+      return state.selected === null && state.pendingSelect === null
+        ? state
+        : { ...state, selected: null, pendingSelect: null }
   }
 }
 
 /**
  * applySnapshot replaces the aircraft table with a full snapshot, extends trails with new positions and drops
- * trails and the selection of aircraft that are gone.
+ * trails and the selection of aircraft that are gone. A pending selection is applied (with a pan when the
+ * aircraft has a position) once the aircraft is in the snapshot.
  */
 function applySnapshot(state: State, list: Aircraft[]): State {
   const aircraft = new Map<string, Aircraft>()
@@ -87,6 +97,17 @@ function applySnapshot(state: State, list: Aircraft[]): State {
     const trail = extendTrail(state.trails.get(a.icao) ?? [], a)
     if (trail.length > 0) {
       trails.set(a.icao, trail)
+    }
+  }
+  const pending = state.pendingSelect === null ? undefined : aircraft.get(state.pendingSelect)
+  if (pending !== undefined) {
+    return {
+      ...state,
+      aircraft,
+      trails,
+      selected: pending.icao,
+      pendingSelect: null,
+      panSeq: pending.hasPosition ? state.panSeq + 1 : state.panSeq,
     }
   }
   const selected = state.selected !== null && aircraft.has(state.selected) ? state.selected : null

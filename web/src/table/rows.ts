@@ -3,20 +3,23 @@ import { aircraftAltitude } from '../map/style'
 
 export const EMERGENCY_SQUAWKS = new Set(['7500', '7600', '7700'])
 
-export type ColumnId =
-  | 'icao'
-  | 'callsign'
-  | 'squawk'
-  | 'altitude'
-  | 'groundSpeed'
-  | 'track'
-  | 'verticalRate'
-  | 'distance'
-  | 'bearing'
-  | 'country'
-  | 'messages'
-  | 'rssi'
-  | 'lastSeen'
+export const COLUMN_IDS = [
+  'icao',
+  'callsign',
+  'squawk',
+  'altitude',
+  'groundSpeed',
+  'track',
+  'verticalRate',
+  'distance',
+  'bearing',
+  'country',
+  'messages',
+  'rssi',
+  'lastSeen',
+] as const
+
+export type ColumnId = (typeof COLUMN_IDS)[number]
 
 export interface Sort {
   id: ColumnId
