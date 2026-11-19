@@ -10,3 +10,5 @@
 - 2026-11-19: UI M1 — /api/receiver, UI embedded via go:embed with SPA fallback, placeholder web/dist, Makefile, Aircraft JSON contract fixture and Go test.
 - 2026-11-19: /api/ws WebSocket (gorilla/websocket) pushes receiver, aircraft snapshots and stats every streamInterval; UI uses it instead of SSE and polling.
 - 2026-11-19: UI M2 — Vite/React/TS scaffold in web/, /api/ws client with reconnect backoff, state reducer with trails, header with counts/rates/status, Vitest contract test.
+- 2026-11-19: UI M3 — Leaflet/OSM map: receiver, 25/50/100 nm rings, rotated altitude-colored markers updated in place, labels, legend, colored trails, stale fading.
+- 2026-11-19: UI M4 — Sortable/filterable aircraft table (TanStack v9), Mode-S-only rows, pinned emergencies, map/table selection sync, detail panel, resizable split layout.

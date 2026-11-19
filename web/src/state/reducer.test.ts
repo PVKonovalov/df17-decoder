@@ -78,6 +78,14 @@ describe('selection', () => {
     expect(s.selected).toBeNull()
   })
 
+  it('requests a pan only for selections that ask for it', () => {
+    let s = snap(initialState, ac('738001'))
+    s = reducer(s, { type: 'select', icao: '738001' })
+    expect(s.panSeq).toBe(0)
+    s = reducer(s, { type: 'select', icao: '738001', pan: true })
+    expect(s.panSeq).toBe(1)
+  })
+
   it('ignores unknown aircraft and clears explicitly', () => {
     let s = snap(initialState, ac('738001'))
     expect(reducer(s, { type: 'select', icao: 'FFFFFF' })).toBe(s)

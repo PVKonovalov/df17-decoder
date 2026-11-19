@@ -19,6 +19,7 @@ export interface State {
   aircraft: ReadonlyMap<string, Aircraft> // keyed by ICAO, in server order (sorted by ICAO)
   trails: ReadonlyMap<string, readonly TrailPoint[]>
   selected: string | null
+  panSeq: number // incremented when the map should pan to the selection (selection from the table)
 }
 
 export type Action =
@@ -26,7 +27,7 @@ export type Action =
   | { type: 'receiver'; receiver: Receiver }
   | { type: 'stats'; stats: Stats }
   | { type: 'snapshot'; aircraft: Aircraft[] }
-  | { type: 'select'; icao: string }
+  | { type: 'select'; icao: string; pan?: boolean }
   | { type: 'clearSelection' }
 
 export const initialState: State = {
@@ -36,6 +37,7 @@ export const initialState: State = {
   aircraft: new Map(),
   trails: new Map(),
   selected: null,
+  panSeq: 0,
 }
 
 export function reducer(state: State, action: Action): State {
@@ -49,7 +51,10 @@ export function reducer(state: State, action: Action): State {
     case 'snapshot':
       return applySnapshot(state, action.aircraft)
     case 'select':
-      return state.aircraft.has(action.icao) ? { ...state, selected: action.icao } : state
+      if (!state.aircraft.has(action.icao)) {
+        return state
+      }
+      return { ...state, selected: action.icao, panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq }
     case 'clearSelection':
       return state.selected === null ? state : { ...state, selected: null }
   }
