@@ -1,0 +1,29 @@
+[Unit]
+Description=dump1090-fa ADS-B receiver (RTL-SDR Blog V4)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=dump1090
+Group=dump1090
+SupplementaryGroups=plugdev
+EnvironmentFile=/etc/default/dump1090
+
+# ESXi USB passthrough leaves the dongle wedged after a close: reset it before every start.
+# "+" runs this step as root even though the service runs as the dump1090 user.
+ExecStartPre=+/usr/bin/usbreset 0bda:2838
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/local/bin/dump1090 $DUMP1090_OPTS
+
+Restart=always
+RestartSec=10
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
