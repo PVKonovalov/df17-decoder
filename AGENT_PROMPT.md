@@ -38,8 +38,8 @@ A long-running Go service that:
       reconnectMax: 30s
       replaySpeed: 1.0               # file:// only; 0 = as fast as possible
     receiver:
-      lat: 32.09
-      lon: 34.96
+      lat: XX.XX
+      lon: XX.XX
       maxRangeNm: 300
     decoder:
       fixSingleBitErrors: false      # DF17 only
