@@ -13,6 +13,7 @@ import (
 
 	"github.com/PVKonovalov/df17-decoder/internal/api"
 	"github.com/PVKonovalov/df17-decoder/internal/config"
+	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
@@ -23,8 +24,9 @@ import (
 )
 
 const (
-	expireInterval  = time.Second
-	shutdownTimeout = 5 * time.Second
+	expireInterval       = time.Second
+	shutdownTimeout      = 5 * time.Second
+	coverageSaveInterval = time.Minute
 )
 
 // NewLogger builds an slog logger for cfg writing to w.
@@ -40,13 +42,14 @@ func NewLogger(cfg config.Log, w io.Writer) *slog.Logger {
 
 // Service wires source → decoder → tracker → HTTP API.
 type Service struct {
-	cfg     config.Config
-	log     *slog.Logger
-	src     source.Source
-	opt     modes.Options
-	ln      net.Listener
-	Stats   *stats.Stats
-	Tracker *tracker.Tracker
+	cfg      config.Config
+	log      *slog.Logger
+	src      source.Source
+	opt      modes.Options
+	ln       net.Listener
+	Stats    *stats.Stats
+	Tracker  *tracker.Tracker
+	Coverage *coverage.Coverage
 }
 
 func New(cfg config.Config, log *slog.Logger) (*Service, error) {
@@ -64,24 +67,40 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		return nil, err
 	}
 
+	receiver := geo.Point{Lat: cfg.Receiver.Lat, Lon: cfg.Receiver.Lon}
+	cov := coverage.New(receiver)
+	if cfg.Coverage.File != "" {
+		var discarded bool
+		if cov, discarded, err = coverage.Load(cfg.Coverage.File, receiver); err != nil {
+			return nil, err
+		}
+		if discarded {
+			log.Warn("coverage file is for another receiver position, starting a new outline", "file", cfg.Coverage.File)
+		} else {
+			log.Info("coverage loaded", "file", cfg.Coverage.File, "buckets", len(cov.Snapshot().Points))
+		}
+	}
+
 	st := stats.New(time.Now())
 	return &Service{
-		cfg:   cfg,
-		log:   log,
-		src:   src,
-		opt:   modes.Options{FixSingleBitErrors: cfg.Decoder.FixSingleBitErrors},
-		Stats: st,
+		cfg:      cfg,
+		log:      log,
+		src:      src,
+		opt:      modes.Options{FixSingleBitErrors: cfg.Decoder.FixSingleBitErrors},
+		Stats:    st,
+		Coverage: cov,
 		Tracker: tracker.New(tracker.Options{
 			TTL:             cfg.Tracker.TTL.D(),
 			KnownAddressTTL: cfg.Tracker.KnownAddressTTL.D(),
 			Resolver: tracker.PositionResolver{
-				Receiver:   geo.Point{Lat: cfg.Receiver.Lat, Lon: cfg.Receiver.Lon},
+				Receiver:   receiver,
 				MaxRangeNm: cfg.Receiver.MaxRangeNm,
 				PairMaxAge: cfg.Decoder.CPRPairMaxAge.D(),
 				RefMaxAge:  cfg.Tracker.TTL.D(),
 			},
-			Logger: log,
-			Stats:  st,
+			Logger:   log,
+			Stats:    st,
+			Coverage: cov,
 		}),
 	}, nil
 }
@@ -122,6 +141,7 @@ func (s *Service) Run(ctx context.Context) error {
 			},
 			UI:             web.Dist(),
 			Tracker:        s.Tracker,
+			Coverage:       s.Coverage,
 			Stats:          s.Stats,
 			Source:         s.SourceStats,
 			SourceURL:      s.cfg.Source.URL,
@@ -141,6 +161,21 @@ func (s *Service) Run(ctx context.Context) error {
 			cancel()
 		}
 	})
+	if s.cfg.Coverage.File != "" {
+		wg.Go(func() {
+			ticker := time.NewTicker(coverageSaveInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					s.saveCoverage()
+				case <-ctx.Done():
+					s.saveCoverage()
+					return
+				}
+			}
+		})
+	}
 	wg.Go(func() {
 		ticker := time.NewTicker(expireInterval)
 		defer ticker.Stop()
@@ -168,6 +203,12 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	wg.Wait()
 	return ingestErr
+}
+
+func (s *Service) saveCoverage() {
+	if err := s.Coverage.Save(s.cfg.Coverage.File); err != nil {
+		s.log.Warn("coverage save failed", "file", s.cfg.Coverage.File, "err", err)
+	}
 }
 
 // Ingest reads frames from the source and feeds the tracker until ctx is cancelled or the source ends

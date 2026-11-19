@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/gorilla/websocket"
 )
 
@@ -50,16 +51,36 @@ func TestWS_Updates(t *testing.T) {
 	if want := `{"tileUrl":"http://tiles.lan/{z}/{x}/{y}.png","attribution":"lan","maxZoom":17,"darkFilter":false}`; m.Type != "map" || string(m.Data) != want {
 		t.Fatalf("second message = %s %s", m.Type, m.Data)
 	}
-	for tick := range 2 {
+	m = readWS(t, c)
+	var cov coverage.Snapshot
+	if err := json.Unmarshal(m.Data, &cov); m.Type != "coverage" || err != nil || len(cov.Points) < 2 || cov.Receiver.Lat != 25.07 {
+		t.Fatalf("third message = %s %s (err %v)", m.Type, m.Data, err)
+	}
+	m = readWS(t, c)
+	var grid coverage.Grid
+	if err := json.Unmarshal(m.Data, &grid); m.Type != "coverageGrid" || err != nil || len(grid.Bands) != 4 {
+		t.Fatalf("fourth message = %s %s (err %v)", m.Type, m.Data, err)
+	}
+
+	// aircraft and stats every 20 ms, coverage every 30 ms, interleaved
+	counts := map[string]int{}
+	for counts["aircraft"] < 3 || counts["coverage"] < 2 {
 		m = readWS(t, c)
-		var list []map[string]any
-		if err := json.Unmarshal(m.Data, &list); m.Type != "aircraft" || err != nil || len(list) != 3 || list[0]["icao"] != "738001" {
-			t.Fatalf("tick %d: aircraft message = %s %.200s (err %v)", tick, m.Type, m.Data, err)
-		}
-		m = readWS(t, c)
-		var st statsResponse
-		if err := json.Unmarshal(m.Data, &st); m.Type != "stats" || err != nil || st.Aircraft != 3 || st.Source.URL != "tcp://test:30002" {
-			t.Fatalf("tick %d: stats message = %s %s (err %v)", tick, m.Type, m.Data, err)
+		counts[m.Type]++
+		switch m.Type {
+		case "aircraft":
+			var list []map[string]any
+			if err := json.Unmarshal(m.Data, &list); err != nil || len(list) != 3 || list[0]["icao"] != "738001" {
+				t.Fatalf("aircraft message = %.200s (err %v)", m.Data, err)
+			}
+			m = readWS(t, c)
+			var st statsResponse
+			if err := json.Unmarshal(m.Data, &st); m.Type != "stats" || err != nil || st.Aircraft != 3 || st.Source.URL != "tcp://test:30002" {
+				t.Fatalf("stats message after aircraft = %s %s (err %v)", m.Type, m.Data, err)
+			}
+		case "coverage":
+		default:
+			t.Fatalf("unexpected message %s", m.Type)
 		}
 	}
 }

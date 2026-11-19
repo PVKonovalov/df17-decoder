@@ -4,10 +4,10 @@
 
 source:
   # Where raw frames come from:
-  #   tcp://host:30002    dump1090 raw AVR output (*hex; or @timestamp+hex;)
-  #   beast://host:30005  dump1090 Beast binary output
-  #   file://path         AVR lines from a file, for offline replay
-  url: tcp://localhost:30002
+  #   beast://host:30005  dump1090 Beast binary output, with signal levels (RSSI); preferred
+  #   tcp://host:30002    dump1090 raw AVR output (*hex; or @timestamp+hex;), no signal levels
+  #   file://path         a recorded capture for offline replay: Beast binary or AVR text, detected from the file
+  url: beast://localhost:30005
   # Reconnect backoff: starts at reconnectMin, doubles after each failure, capped at reconnectMax.
   reconnectMin: 1s
   reconnectMax: 30s
@@ -49,6 +49,12 @@ map:
   maxZoom: 19
   # Invert the tiles in dark mode (OSM has no dark style). Set false if your tiles are already dark.
   darkFilter: true
+
+coverage:
+  # JSON file that keeps the range outline (furthest position per 2° of bearing) across restarts. It is saved
+  # every minute and on shutdown, and discarded when receiver.lat/lon change. Empty: kept in memory only.
+  # With the systemd unit: /var/lib/df17-decoder/coverage.json
+  file: ""
 
 log:
   level: info    # debug|info|warn|error

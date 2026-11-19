@@ -20,6 +20,13 @@ type Options struct {
 	Resolver        PositionResolver
 	Logger          *slog.Logger
 	Stats           *stats.Stats
+	Coverage        CoverageRecorder // optional; receives every accepted position
+}
+
+// CoverageRecorder records accepted positions (altitude in ft and frame signal in dBFS, both may be nil) at
+// data time t.
+type CoverageRecorder interface {
+	Add(p geo.Point, alt *int, rssi *float64, t time.Time)
 }
 
 type entry struct {
@@ -157,7 +164,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 		if p.Altitude != nil {
 			attrs = append(attrs, "altitude", *p.Altitude, "gnss", p.GNSS)
 		}
-		t.updatePosition(e, pos, err, attrs...)
+		t.updatePosition(e, pos, err, rssi, attrs...)
 	}
 	if p := m.SurfacePosition; p != nil {
 		if p.GroundSpeed != nil {
@@ -167,7 +174,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 			a.Track = new(round(*p.Track, 1))
 		}
 		pos, err := t.opt.Resolver.ResolveSurface(&e.cpr, p.CPR, m.Time)
-		t.updatePosition(e, pos, err, "surface", true)
+		t.updatePosition(e, pos, err, rssi, "surface", true)
 	}
 	if v := m.Velocity; v != nil {
 		t.updateVelocity(a, v)
@@ -441,9 +448,10 @@ func val[T any](p *T) any {
 	return *p
 }
 
-// updatePosition applies a resolved position (pos, err) to the aircraft, counts the outcome and logs the first fix
-// of each aircraft at info level, later ones at debug, with extra log attributes.
-func (t *Tracker) updatePosition(e *entry, pos Position, err error, extra ...any) {
+// updatePosition applies a resolved position (pos, err) from a frame with signal rssi (dBFS, may be nil) to the
+// aircraft, counts the outcome and logs the first fix of each aircraft at info level, later ones at debug, with
+// extra log attributes.
+func (t *Tracker) updatePosition(e *entry, pos Position, err error, rssi *float64, extra ...any) {
 	a := &e.a
 	firstFix := !a.HasPosition
 
@@ -456,6 +464,17 @@ func (t *Tracker) updatePosition(e *entry, pos Position, err error, extra ...any
 		return
 	default:
 		return
+	}
+
+	if t.opt.Coverage != nil {
+		alt := a.AltBaro
+		if alt == nil {
+			alt = a.AltGNSS
+		}
+		if a.OnGround != nil && *a.OnGround {
+			alt = new(0)
+		}
+		t.opt.Coverage.Add(pos.Point, alt, rssi, pos.Time)
 	}
 
 	r := t.opt.Resolver.Receiver

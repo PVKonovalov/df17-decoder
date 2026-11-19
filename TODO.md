@@ -9,8 +9,6 @@ Candidate improvements, roughly by value. Move items to RELEASE.md when done.
 
 ## Web UI
 
-- [ ] **Coverage plot:** polar outline of the furthest position seen per bearing, for antenna tuning. Needs a small
-      backend aggregate (max range per bearing bucket).
 - [ ] **Shareable links:** `/?icao=738ABC` selects the aircraft on load; filters are kept in the URL.
 
 ## Operations

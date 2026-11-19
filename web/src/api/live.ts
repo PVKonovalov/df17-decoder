@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch } from 'react'
 import type { Action } from '../state/reducer'
-import type { Aircraft, MapConfig, Receiver, Stats } from './types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats } from './types'
 
 export const RECONNECT_MIN_MS = 1000
 export const RECONNECT_MAX_MS = 30_000
@@ -45,6 +45,17 @@ export function toAction(raw: unknown): Action | null {
         : null
     case 'stats':
       return isObject(data) ? { type: 'stats', stats: data as unknown as Stats } : null
+    case 'coverage':
+      return isObject(data) && Array.isArray(data.points) && typeof data.bucketDeg === 'number'
+        ? { type: 'coverage', coverage: data as unknown as Coverage }
+        : null
+    case 'coverageGrid':
+      return isObject(data) &&
+        Array.isArray(data.bands) &&
+        typeof data.bucketDeg === 'number' &&
+        typeof data.ringNm === 'number'
+        ? { type: 'coverageGrid', grid: data as unknown as CoverageGrid }
+        : null
     default:
       return null
   }

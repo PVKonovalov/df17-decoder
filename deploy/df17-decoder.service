@@ -16,8 +16,10 @@ RestartSec=5s
 # Exit code 2 is a config error: fix the file instead of restarting in a loop.
 RestartPreventExitStatus=2
 
-# Unprivileged throwaway user; the service writes nothing to disk.
+# Unprivileged throwaway user. The only writable place is /var/lib/df17-decoder, for
+# coverage.file: /var/lib/df17-decoder/coverage.json
 DynamicUser=yes
+StateDirectory=df17-decoder
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

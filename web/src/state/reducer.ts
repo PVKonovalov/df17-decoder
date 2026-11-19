@@ -1,4 +1,4 @@
-import type { Aircraft, MapConfig, Receiver, Stats } from '../api/types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats } from '../api/types'
 
 export const TRAIL_MAX_AGE_MS = 5 * 60 * 1000
 export const TRAIL_MAX_POINTS = 1000
@@ -16,6 +16,8 @@ export interface State {
   conn: ConnState
   receiver: Receiver | null
   map: MapConfig | null
+  coverage: Coverage | null
+  coverageGrid: CoverageGrid | null
   stats: Stats | null
   aircraft: ReadonlyMap<string, Aircraft> // keyed by ICAO, in server order (sorted by ICAO)
   trails: ReadonlyMap<string, readonly TrailPoint[]>
@@ -27,6 +29,8 @@ export type Action =
   | { type: 'connection'; conn: ConnState }
   | { type: 'receiver'; receiver: Receiver }
   | { type: 'map'; map: MapConfig }
+  | { type: 'coverage'; coverage: Coverage }
+  | { type: 'coverageGrid'; grid: CoverageGrid }
   | { type: 'stats'; stats: Stats }
   | { type: 'snapshot'; aircraft: Aircraft[] }
   | { type: 'select'; icao: string; pan?: boolean }
@@ -36,6 +40,8 @@ export const initialState: State = {
   conn: 'connecting',
   receiver: null,
   map: null,
+  coverage: null,
+  coverageGrid: null,
   stats: null,
   aircraft: new Map(),
   trails: new Map(),
@@ -51,6 +57,10 @@ export function reducer(state: State, action: Action): State {
       return { ...state, receiver: action.receiver }
     case 'map':
       return { ...state, map: action.map }
+    case 'coverage':
+      return { ...state, coverage: action.coverage }
+    case 'coverageGrid':
+      return { ...state, coverageGrid: action.grid }
     case 'stats':
       return { ...state, stats: action.stats }
     case 'snapshot':

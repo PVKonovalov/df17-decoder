@@ -4,7 +4,10 @@ import { useEffect, useMemo, type Dispatch } from 'react'
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { Action, State } from '../state/reducer'
 import { AircraftLayer } from './AircraftLayer'
-import { useColorMode } from './colorMode'
+import { type CoverageView, useColorMode, useCoverageView, useHeatBand } from './prefs'
+import { CoverageLayer } from './CoverageLayer'
+import { HEAT_BANDS, type HeatBand, hasSignal as gridHasSignal } from './heatmap'
+import { HeatmapLayer } from './HeatmapLayer'
 import {
   ALT_MAX_FT,
   altitudeColor,
@@ -32,8 +35,12 @@ interface Props {
 export function LiveMap({ state, dispatch }: Props) {
   const { receiver, map: tiles } = state
   const [chosenMode, setColorMode] = useColorMode()
+  const [chosenView, setCoverageView] = useCoverageView()
+  const [band, setBand] = useHeatBand()
+  const heatSignal = useMemo(() => gridHasSignal(state.coverageGrid), [state.coverageGrid])
   const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
   const colorMode = hasSignal ? chosenMode : 'altitude'
+  const coverageView = chosenView === 'signal' && !heatSignal ? 'count' : chosenView
   if (receiver === null || tiles === null) {
     return <div className="map-wait">Waiting for receiver position…</div>
   }
@@ -56,6 +63,10 @@ export function LiveMap({ state, dispatch }: Props) {
           pathOptions={{ className: 'receiver', fillOpacity: 1, weight: 2 }}
           interactive={false}
         />
+        {(coverageView === 'signal' || coverageView === 'count') && (
+          <HeatmapLayer grid={state.coverageGrid} metric={coverageView} band={band} />
+        )}
+        {coverageView === 'outline' && <CoverageLayer coverage={state.coverage} />}
         <AircraftLayer
           aircraft={state.aircraft}
           trails={state.trails}
@@ -67,7 +78,15 @@ export function LiveMap({ state, dispatch }: Props) {
         <PanToSelection state={state} />
         <InvalidateOnResize />
       </MapContainer>
-      <MapLegend mode={colorMode} onMode={hasSignal ? setColorMode : undefined} />
+      <MapLegend
+        mode={colorMode}
+        onMode={hasSignal ? setColorMode : undefined}
+        coverage={coverageView}
+        onCoverage={setCoverageView}
+        heatSignal={heatSignal}
+        band={band}
+        onBand={setBand}
+      />
     </div>
   )
 }
@@ -158,11 +177,36 @@ const SIGNAL_GRADIENT = gradient(
   }),
 )
 
+const COVERAGE_VIEWS: readonly { view: CoverageView; label: string }[] = [
+  { view: 'off', label: 'Off' },
+  { view: 'outline', label: 'Outline' },
+  { view: 'signal', label: 'Signal' },
+  { view: 'count', label: 'Count' },
+]
+
 /**
  * MapLegend shows the color scale of the markers: altitude (also used by trails) or signal level. onMode,
- * given only when some aircraft has a signal level (Beast input), adds the switch between the two.
+ * given only when some aircraft has a signal level (Beast input), adds the switch between the two. onCoverage
+ * adds the coverage view switch (the Signal heatmap only when heatSignal), and onBand the heatmap's altitude band.
  */
-export function MapLegend({ mode, onMode }: { mode: ColorMode; onMode?: ((m: ColorMode) => void) | undefined }) {
+export function MapLegend({
+  mode,
+  onMode,
+  coverage = 'off',
+  onCoverage,
+  heatSignal = false,
+  band = 'all',
+  onBand,
+}: {
+  mode: ColorMode
+  onMode?: ((m: ColorMode) => void) | undefined
+  coverage?: CoverageView
+  onCoverage?: (v: CoverageView) => void
+  heatSignal?: boolean
+  band?: HeatBand
+  onBand?: (b: HeatBand) => void
+}) {
+  const heat = coverage === 'signal' || coverage === 'count'
   const signal = mode === 'signal'
   return (
     <div className="legend" aria-label={signal ? 'Signal color scale' : 'Altitude color scale'}>
@@ -197,6 +241,61 @@ export function MapLegend({ mode, onMode }: { mode: ColorMode; onMode?: ((m: Col
         )}
         <span className="legend-swatch" style={{ background: NO_ALT_COLOR }} /> {signal ? 'no signal level' : 'unknown'}
       </div>
+      {onCoverage !== undefined && (
+        <div className="legend-coverage">
+          <div className="legend-title">Coverage</div>
+          <div className="legend-modes" role="group" aria-label="Coverage view">
+            {COVERAGE_VIEWS.filter((v) => v.view !== 'signal' || heatSignal).map((v) => (
+              <button
+                key={v.view}
+                type="button"
+                aria-pressed={coverage === v.view}
+                onClick={() => {
+                  onCoverage(v.view)
+                }}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          {heat && (
+            <>
+              {onBand !== undefined && (
+                <select
+                  className="legend-band"
+                  aria-label="Heatmap altitude band"
+                  value={band}
+                  onChange={(e) => {
+                    onBand(e.target.value as HeatBand)
+                  }}
+                >
+                  {HEAT_BANDS.map((b) => (
+                    <option key={b.band} value={b.band}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="legend-bar" style={{ background: SIGNAL_GRADIENT }} />
+              <div className="legend-ticks">
+                {coverage === 'signal' ? (
+                  SIGNAL_TICKS.map((db) => <span key={db}>{db}</span>)
+                ) : (
+                  <>
+                    <span>rare</span>
+                    <span>often</span>
+                  </>
+                )}
+              </div>
+              <div className="legend-note">
+                {coverage === 'signal'
+                  ? 'Average dBFS of decoded frames. Weak frames are lost near the edge, so edge cells look stronger.'
+                  : 'Positions per 2° × 5 nm cell, log scale.'}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

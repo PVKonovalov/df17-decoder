@@ -25,10 +25,14 @@ describe('toAction', () => {
     expect(toAction('{"type":"stats","data":{"frames":1}}')?.type).toBe('stats')
     const map = { tileUrl: 'http://t.lan/{z}/{x}/{y}.png', attribution: 'lan', maxZoom: 17, darkFilter: false }
     expect(toAction(JSON.stringify({ type: 'map', data: map }))).toEqual({ type: 'map', map })
+    const coverage = { receiver: { lat: 1, lon: 2 }, bucketDeg: 2, points: [] }
+    expect(toAction(JSON.stringify({ type: 'coverage', data: coverage }))).toEqual({ type: 'coverage', coverage })
+    const grid = { receiver: { lat: 1, lon: 2 }, bucketDeg: 2, ringNm: 5, bands: [] }
+    expect(toAction(JSON.stringify({ type: 'coverageGrid', data: grid }))).toEqual({ type: 'coverageGrid', grid })
   })
 
   it('ignores unknown, malformed and binary messages', () => {
-    for (const raw of ['{"type":"future","data":{}}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', 'not json', '42', null]) {
+    for (const raw of ['{"type":"future","data":{}}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', '{"type":"coverage","data":{"bucketDeg":2}}', '{"type":"coverageGrid","data":{"bucketDeg":2,"ringNm":5}}', 'not json', '42', null]) {
       expect(toAction(raw)).toBeNull()
     }
     expect(toAction(new ArrayBuffer(2))).toBeNull()

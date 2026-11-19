@@ -126,9 +126,42 @@ export interface Stats {
   aircraft: number
 }
 
+/** coverage.Point: the furthest position seen in one bearing bucket */
+export interface CoveragePoint {
+  bearing: number // degrees true from the receiver
+  distanceNm: number
+  lat: number
+  lon: number
+  alt?: number // ft
+  time: string // RFC 3339, data time
+}
+
+/** coverage.Snapshot: the range outline, non-empty buckets in bearing order */
+export interface Coverage {
+  receiver: { lat: number; lon: number }
+  bucketDeg: number
+  points: CoveragePoint[]
+}
+
+/**
+ * coverage.Cell: [bucket, ring, positions, positions with a signal level, average dBFS (mean of linear power),
+ * min dBFS, max dBFS]; the signal values are 0 when no position had a signal level.
+ */
+export type CoverageCell = [number, number, number, number, number, number, number]
+
+/** coverage.Grid: the polar coverage grid, one cell list per altitude band (low, mid, high, unknown) */
+export interface CoverageGrid {
+  receiver: { lat: number; lon: number }
+  bucketDeg: number
+  ringNm: number
+  bands: { name: string; cells: CoverageCell[] }[]
+}
+
 /** api.wsMessage as received on /api/ws */
 export type WsMessage =
   | { type: 'receiver'; data: Receiver }
   | { type: 'map'; data: MapConfig }
+  | { type: 'coverage'; data: Coverage }
+  | { type: 'coverageGrid'; data: CoverageGrid }
   | { type: 'aircraft'; data: Aircraft[] }
   | { type: 'stats'; data: Stats }

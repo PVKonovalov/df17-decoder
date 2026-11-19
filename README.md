@@ -50,7 +50,7 @@ go run ./cmd/df17-decoder -config config/config.yaml -log-level debug   # overri
 go run ./cmd/df17-decoder -version   # print the version and exit
 ```
 
-Without `-config` the service runs on built-in defaults (`tcp://localhost:30002`, API on `:8080`). Every key is
+Without `-config` the service runs on built-in defaults (`beast://localhost:30005`, API on `:8080`). Every key is
 documented in [`config/config.example.yaml`](config/config.example.yaml). Unknown keys and invalid values stop
 startup with a list of all errors found.
 
@@ -99,7 +99,9 @@ sudo systemctl enable --now df17-decoder
 journalctl -u df17-decoder -f   # logs
 ```
 
-After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. To listen on a port
+After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. The unit gives the
+service one writable directory, `/var/lib/df17-decoder`, so set `coverage.file: /var/lib/df17-decoder/coverage.json`
+to keep the coverage outline across restarts. To listen on a port
 below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 
 ### Docker
@@ -107,8 +109,11 @@ below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 ```sh
 make docker   # builds df17-decoder:<version> and :latest (UI, static binary, distroless non-root image)
 docker run -d --name df17 --restart unless-stopped -p 8080:8080 \
-  -v "$PWD/config/config.yaml:/etc/df17-decoder/config.yaml:ro" df17-decoder
+  -v "$PWD/config/config.yaml:/etc/df17-decoder/config.yaml:ro" \
+  -v df17-state:/var/lib/df17-decoder df17-decoder
 ```
+
+The `df17-state` volume keeps the coverage outline when `coverage.file` is `/var/lib/df17-decoder/coverage.json`.
 
 In the container, `localhost` is the container itself. Point `source.url` at the dump1090 host's address, or use
 `--network host` on Linux. For another architecture, use buildx, for example
@@ -122,9 +127,11 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
 | `GET /api/stats` | Version, source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
-| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` and `map` once, then `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` and `map` once, `coverage` every 10 s, `coverageGrid` every 60 s, `aircraft` and `stats` every `api.streamInterval` |
 | `GET /api/map` | Tile layer for the UI from the `map` config section |
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
+| `GET /api/coverage` | Range outline: the furthest accepted position per 2° of bearing (distance, point, altitude, time) |
+| `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
 Every other path serves the [web UI](#web-ui) embedded in the binary. Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
@@ -197,7 +204,15 @@ there's nothing else to deploy.
 - **Map** (Leaflet, OpenStreetMap tiles, no API key): the receiver with range rings at 25/50/100 nm, and
   aircraft rotated by track and colored by altitude (legend bottom-left). With Beast input, the legend has an
   Altitude/Signal switch that colors markers by signal level instead, from red (weak, -36 dBFS) to green
-  (strong, -3 dBFS), to check antenna coverage. RSSI is averaged over each aircraft's last 8 frames. Labels show callsign and altitude
+  (strong, -3 dBFS), to check antenna coverage. RSSI is averaged over each aircraft's last 8 frames.
+  The **Coverage** switch in the legend has three views. **Outline** draws the furthest position seen in each
+  2° of bearing, so blocked directions show up as dents; hover it for the range, bearing and altitude.
+  **Signal** (Beast input) and **Count** are heatmaps of 2° × 5 NM wedges around the receiver, colored by the
+  average signal level or by how many positions were decoded there (log scale), for all altitudes or one band;
+  hover a wedge for its numbers. The signal average only covers decoded frames, so cells near the edge look
+  stronger than they are; use Count to see where reception thins out. Set `coverage.file` to
+  keep the outline and the grid across restarts. It is saved every minute and on shutdown, and starts over when the
+  receiver position changes. Labels show callsign and altitude
   in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails cover
   the last 5 minutes. Aircraft whose position is older than 30 s fade out.
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access

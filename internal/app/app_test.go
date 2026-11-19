@@ -246,3 +246,40 @@ func TestRun_ListenError(t *testing.T) {
 		t.Errorf("err = %v, want listen error", err)
 	}
 }
+
+func TestRun_SavesAndReloadsCoverage(t *testing.T) {
+	cfg := captureConfig()
+	cfg.Coverage.File = filepath.Join(t.TempDir(), "coverage.json")
+	svc, _ := newService(t, cfg)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for svc.Stats.Positions.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(cfg.Coverage.File)
+	if err != nil {
+		t.Fatalf("coverage not saved on shutdown: %v", err)
+	}
+	var saved struct{ Points []map[string]any }
+	if err := json.Unmarshal(data, &saved); err != nil || len(saved.Points) != 2 { // two KLM fixes over the North Sea, 311° and 313°
+		t.Fatalf("saved %s (err %v)", data, err)
+	}
+
+	svc2, log := newService(t, cfg)
+	if n := len(svc2.Coverage.Snapshot().Points); n != 2 || !strings.Contains(log.String(), "coverage loaded") {
+		t.Errorf("reloaded %d points; log %s", n, log)
+	}
+	cfg.Receiver.Lat = 51
+	svc3, log := newService(t, cfg)
+	if n := len(svc3.Coverage.Snapshot().Points); n != 0 || !strings.Contains(log.String(), "another receiver position") {
+		t.Errorf("moved receiver: %d points; log %s", n, log)
+	}
+}

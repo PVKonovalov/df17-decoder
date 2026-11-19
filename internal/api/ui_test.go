@@ -179,3 +179,60 @@ func TestAircraftContract(t *testing.T) {
 		t.Errorf("Aircraft JSON keys drifted from web/src/api/aircraft.fixture.json\n Go:      %v\n fixture: %v", got, want)
 	}
 }
+
+func TestCoverage(t *testing.T) {
+	f := newFixture(t)
+	rec, _ := f.get(t, "/api/coverage")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	var s struct {
+		Receiver  map[string]float64 `json:"receiver"`
+		BucketDeg int                `json:"bucketDeg"`
+		Points    []map[string]any   `json:"points"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil {
+		t.Fatal(err)
+	}
+	// fixture positions, due north and south, so CPR rounding may land them on either side of a bucket edge:
+	// 738001 ~10 NM north (0 ft), 738002 ~40 NM south (12000 ft)
+	if s.BucketDeg != 2 || s.Receiver["lat"] != 25.07 || len(s.Points) < 2 {
+		t.Fatalf("coverage = %s", rec.Body)
+	}
+	for _, p := range s.Points {
+		brg, d, alt := p["bearing"].(float64), p["distanceNm"].(float64), p["alt"].(float64)
+		north := (brg < 2 || brg >= 358) && d > 9 && d < 11 && alt == 0
+		south := brg > 178 && brg < 182 && d > 39 && d < 41 && alt == 12000
+		if !north && !south {
+			t.Errorf("unexpected point %v", p)
+		}
+	}
+}
+
+func TestCoverage_EmptyWithoutRecorder(t *testing.T) {
+	rec := serve(New(Deps{Receiver: Receiver{Lat: 1, Lon: 2}}), http.MethodGet, "/api/coverage")
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"receiver":{"lat":1,"lon":2},"bucketDeg":2,"points":[]}` {
+		t.Errorf("body %s", got)
+	}
+}
+
+func TestCoverageGrid(t *testing.T) {
+	rec, _ := newFixture(t).get(t, "/api/coverage/grid")
+	var g struct {
+		RingNm int `json:"ringNm"`
+		Bands  []struct {
+			Name  string       `json:"name"`
+			Cells [][7]float64 `json:"cells"`
+		} `json:"bands"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("%d %s (err %v)", rec.Code, rec.Body, err)
+	}
+	// fixture: 738001 ~10 NM north at 0 ft (low, ring 2), 738002 ~40 NM south at 12000 ft (mid, ring 8)
+	if g.RingNm != 5 || len(g.Bands) != 4 || len(g.Bands[0].Cells) == 0 || len(g.Bands[1].Cells) == 0 {
+		t.Fatalf("grid %s", rec.Body)
+	}
+	if c := g.Bands[1].Cells[0]; c[1] != 8 || c[2] < 1 {
+		t.Errorf("mid cell %v", c)
+	}
+}

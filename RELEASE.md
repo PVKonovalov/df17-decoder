@@ -27,3 +27,6 @@
 - 2026-11-19: Target state (TC 29): selected altitude (MCP/FMS), heading, altimeter, autopilot modes in API and detail panel; replaygen sends TC 29.
 - 2026-11-19: Comm-B BDS 4,0/5,0/6,0 inferred from DF20/21 with IAS/Mach and ADS-B cross-checks; roll, mach fields; commBAmbiguous/Rejected stats; replaygen DF20.
 - 2026-11-19: Signal view: Altitude/Signal marker colors (Beast RSSI, 8-frame average); Beast file replay; replaygen -format beast; make demo uses busy.bin.
+- 2026-11-19: Default source is now beast://localhost:30005 (signal levels); config example lists Beast first.
+- 2026-11-19: Coverage outline: furthest position per 2° bearing, /api/coverage + ws, map toggle with hover range; persisted to coverage.file (systemd/Docker state dir).
+- 2026-11-19: Coverage heatmap: legend Off/Outline/Signal/Count switch, 2°×5 NM wedges by avg dBFS or position count per altitude band, hover cell stats.

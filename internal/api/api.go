@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/coverage"
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
@@ -39,10 +41,15 @@ type MapConfig struct {
 
 // Deps are the read-only views the API serves.
 type Deps struct {
-	Receiver       Receiver
-	Map            MapConfig
-	UI             fs.FS // built web UI served at /; nil disables it
-	Tracker        *tracker.Tracker
+	Receiver Receiver
+	Map      MapConfig
+	UI       fs.FS // built web UI served at /; nil disables it
+	Tracker  *tracker.Tracker
+	Coverage *coverage.Coverage // range outline; nil serves an empty one
+	// CoverageInterval is how often /api/ws pushes the outline; 10 s when zero.
+	CoverageInterval time.Duration
+	// GridInterval is how often /api/ws pushes the coverage grid; 60 s when zero.
+	GridInterval   time.Duration
 	Stats          *stats.Stats
 	Source         func() source.StatsSnapshot
 	SourceURL      string
@@ -62,6 +69,15 @@ func New(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
+	if d.Coverage == nil {
+		d.Coverage = coverage.New(geo.Point{Lat: d.Receiver.Lat, Lon: d.Receiver.Lon})
+	}
+	if d.CoverageInterval <= 0 {
+		d.CoverageInterval = defaultCoverageInterval
+	}
+	if d.GridInterval <= 0 {
+		d.GridInterval = defaultGridInterval
+	}
 	s := &server{d}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/aircraft", s.aircraftList)
@@ -71,6 +87,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/ws", s.ws)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /api/map", s.mapConfig)
+	mux.HandleFunc("GET /api/coverage", s.coverage)
+	mux.HandleFunc("GET /api/coverage/grid", s.coverageGrid)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint: "+r.Method+" "+r.URL.Path)
@@ -85,6 +103,16 @@ func (s *server) receiver(w http.ResponseWriter, _ *http.Request) {
 
 func (s *server) mapConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.Map)
+}
+
+// coverage serves GET /api/coverage: the range outline, furthest position per bearing bucket.
+func (s *server) coverage(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Coverage.Snapshot())
+}
+
+// coverageGrid serves GET /api/coverage/grid: positions and signal levels per bearing bucket, ring and altitude band.
+func (s *server) coverageGrid(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Coverage.Grid())
 }
 
 // ui serves files of the embedded UI; GET paths that are not files fall back to index.html (SPA routing).

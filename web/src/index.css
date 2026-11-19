@@ -575,8 +575,11 @@ body {
   border-radius: 3px 0 0 3px;
 }
 
-.legend-modes button:last-child {
+.legend-modes button + button {
   border-left: none;
+}
+
+.legend-modes button:last-child {
   border-radius: 0 3px 3px 0;
 }
 
@@ -584,4 +587,34 @@ body {
   color: var(--text);
   background: var(--sel-bg);
   border-color: var(--sel);
+}
+
+.legend-coverage {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.legend-band {
+  width: 100%;
+  margin-bottom: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.legend-note {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+/* Leaflet sets SVG attributes; CSS wins over them. */
+.leaflet-overlay-pane path.coverage {
+  stroke: var(--sel);
+  fill: var(--sel);
+  fill-opacity: 0.07;
+  stroke-opacity: 0.8;
 }

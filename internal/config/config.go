@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type Config struct {
 	Tracker  Tracker  `yaml:"tracker"`
 	API      API      `yaml:"api"`
 	Map      Map      `yaml:"map"`
+	Coverage Coverage `yaml:"coverage"`
 	Log      Log      `yaml:"log"`
 }
 
@@ -79,6 +81,11 @@ type Map struct {
 	DarkFilter  bool   `yaml:"darkFilter"`
 }
 
+// Coverage configures the range outline (furthest position per bearing).
+type Coverage struct {
+	File string `yaml:"file"` // JSON file the outline is kept in across restarts; "" keeps it in memory only
+}
+
 type Log struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
@@ -93,7 +100,7 @@ type Overrides struct {
 func Default() Config {
 	return Config{
 		Source: Source{
-			URL:          "tcp://localhost:30002",
+			URL:          "beast://localhost:30005",
 			ReconnectMin: Duration(time.Second),
 			ReconnectMax: Duration(30 * time.Second),
 			ReplaySpeed:  1.0,
@@ -185,6 +192,11 @@ func (c Config) Validate() error {
 		check(strings.Contains(c.Map.TileURL, p), "map.tileUrl must contain %s, got %q", p, c.Map.TileURL)
 	}
 	check(c.Map.MaxZoom >= 1 && c.Map.MaxZoom <= 22, "map.maxZoom must be in [1, 22], got %d", c.Map.MaxZoom)
+	if c.Coverage.File != "" {
+		dir := filepath.Dir(c.Coverage.File)
+		fi, err := os.Stat(dir)
+		check(err == nil && fi.IsDir(), "coverage.file: directory %q does not exist", dir)
+	}
 
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":

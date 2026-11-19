@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
@@ -31,6 +32,7 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	st := stats.New(time.Now())
+	cov := coverage.New(geo.Point{Lat: 25.07, Lon: 22.87})
 	tr := tracker.New(tracker.Options{
 		TTL:             time.Minute,
 		KnownAddressTTL: time.Minute,
@@ -38,7 +40,8 @@ func newFixture(t *testing.T) *fixture {
 			Receiver: geo.Point{Lat: 25.07, Lon: 22.87}, MaxRangeNm: 300,
 			PairMaxAge: 10 * time.Second, RefMaxAge: time.Minute,
 		},
-		Stats: st,
+		Stats:    st,
+		Coverage: cov,
 	})
 	now := time.Now()
 	pos := func(icao uint32, at time.Time, lat, lon float64, alt int) {
@@ -57,14 +60,16 @@ func newFixture(t *testing.T) *fixture {
 
 	f := &fixture{stats: st}
 	f.handler = New(Deps{
-		Receiver:       Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
-		Map:            MapConfig{TileURL: "http://tiles.lan/{z}/{x}/{y}.png", Attribution: "lan", MaxZoom: 17},
-		Tracker:        tr,
-		Stats:          st,
-		Source:         func() source.StatsSnapshot { return f.src },
-		SourceURL:      "tcp://test:30002",
-		Version:        "v1.2.3",
-		StreamInterval: 20 * time.Millisecond,
+		Receiver:         Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
+		Map:              MapConfig{TileURL: "http://tiles.lan/{z}/{x}/{y}.png", Attribution: "lan", MaxZoom: 17},
+		Tracker:          tr,
+		Stats:            st,
+		Source:           func() source.StatsSnapshot { return f.src },
+		SourceURL:        "tcp://test:30002",
+		Version:          "v1.2.3",
+		Coverage:         cov,
+		CoverageInterval: 30 * time.Millisecond,
+		StreamInterval:   20 * time.Millisecond,
 	})
 	return f
 }

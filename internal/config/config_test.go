@@ -87,6 +87,7 @@ func TestLoad_Errors(t *testing.T) {
 		{"tile url not http", "map:\n  tileUrl: ftp://t/{z}/{x}/{y}.png\n", []string{"map.tileUrl must be an http(s) URL"}},
 		{"tile url without placeholders", "map:\n  tileUrl: https://t.lan/tiles.png\n", []string{"{z}", "{x}", "{y}"}},
 		{"max zoom out of range", "map:\n  maxZoom: 30\n", []string{"map.maxZoom"}},
+		{"coverage dir missing", "coverage:\n  file: /no/such/dir/coverage.json\n", []string{"coverage.file", "/no/such/dir"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

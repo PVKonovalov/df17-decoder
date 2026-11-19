@@ -13,9 +13,13 @@ const (
 	wsPingInterval = 30 * time.Second
 	wsPongWait     = 2 * wsPingInterval
 	wsReadLimit    = 4096
+
+	defaultCoverageInterval = 10 * time.Second
+	defaultGridInterval     = time.Minute
 )
 
-// wsMessage is one WebSocket text message: Type is "receiver", "map", "aircraft" or "stats".
+// wsMessage is one WebSocket text message: Type is "receiver", "map", "coverage", "coverageGrid", "aircraft"
+// or "stats".
 type wsMessage struct {
 	Type string `json:"type"`
 	Data any    `json:"data"`
@@ -31,8 +35,9 @@ var upgrader = websocket.Upgrader{
 }
 
 // ws serves GET /api/ws: "receiver" and "map" once, then "aircraft" (sorted by ICAO) and "stats" immediately and every
-// StreamInterval, until the client goes away or the server shuts down (close 1001). Client messages are
-// ignored; a client that stops answering pings or reading is dropped.
+// StreamInterval, "coverage" immediately and every CoverageInterval, and "coverageGrid" immediately and every
+// GridInterval, until the client goes away or the server
+// shuts down (close 1001). Client messages are ignored; a client that stops answering pings or reading is dropped.
 func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -65,17 +70,30 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 		return send("stats", s.statsSnapshot())
 	}
 
-	if send("receiver", s.Receiver) != nil || send("map", s.Map) != nil || update() != nil {
+	if send("receiver", s.Receiver) != nil || send("map", s.Map) != nil || send("coverage", s.Coverage.Snapshot()) != nil ||
+		send("coverageGrid", s.Coverage.Grid()) != nil || update() != nil {
 		return
 	}
 	ticker := time.NewTicker(s.StreamInterval)
 	defer ticker.Stop()
+	cov := time.NewTicker(s.CoverageInterval)
+	defer cov.Stop()
+	grid := time.NewTicker(s.GridInterval)
+	defer grid.Stop()
 	ping := time.NewTicker(wsPingInterval)
 	defer ping.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			if update() != nil {
+				return
+			}
+		case <-cov.C:
+			if send("coverage", s.Coverage.Snapshot()) != nil {
+				return
+			}
+		case <-grid.C:
+			if send("coverageGrid", s.Coverage.Grid()) != nil {
 				return
 			}
 		case <-ping.C:
