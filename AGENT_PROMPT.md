@@ -8,7 +8,6 @@ I run a home 1090 MHz receiver:
 - `dump1090-fa` runs on that VM in network mode, so it does the demodulation and serves frames over TCP:
   - **30002**: raw AVR text, one frame per line: `*8D4840D6202CC371C32CE0576098;` (14 hex chars = 56-bit frame, 28 hex chars = 112-bit frame)
   - **30005**: Beast binary (same frames, plus a 12 MHz timestamp and signal level)
-- The receiver is near Rosh HaAyin, Israel (approx. **32.09 N, 34.96 E**) and sits under the Ben Gurion (LLBG) approach and departure paths. Typical traffic: commercial ADS-B (DF17) plus Israeli light aircraft (`4X-` registrations, ICAO block `738000–73FFFF`) that send Mode S replies only, with no ADS-B position.
 
 dump1090 already decodes everything, but I want **my own decoder written from scratch in Go**, to learn the protocol and to own the data pipeline. **Do not use dump1090's decoded outputs (SBS on 30003, JSON) and do not use third-party ADS-B decoding libraries.** Consume raw frames only.
 

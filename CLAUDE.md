@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Use Go 1.26
 - Don't use a lot of code comments. For function describe arguments and results. The best comments is a code.
 - use go fix ./...
-
+- do not push and commit into the repo
 ## Project
 
 Go project for a Mode S / ADS-B decoder (per README): DF17 decoding (callsign, altitude, CPR position, velocity), Mode S altitude/squawk for non-ADS-B aircraft, an aircraft state table, and a JSON API.
