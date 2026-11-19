@@ -19,6 +19,7 @@ var (
 	ErrUnsupported   = errors.New("unsupported downlink format")
 	ErrBadCallsign   = errors.New("callsign contains invalid characters")
 	ErrUnsupportedTC = errors.New("unsupported type code")
+	ErrInvalid       = errors.New("invalid field value")
 )
 
 // Options controls optional decoder behaviour.
@@ -35,11 +36,18 @@ type Message struct {
 	FixedBit int // 1-based position of a repaired bit, 0 when the frame was intact
 	TC       int // ADS-B type code, 0 for non-ES frames
 
+	// AddressParity is set for DF0/4/5/16/20/21: ICAO is the CRC remainder and must be checked against
+	// addresses already seen in valid DF11/17/18 frames before the message is trusted.
+	AddressParity bool
+	OnGround      *bool // from CA (DF11/17), FS or VS; nil when unknown
+
 	Identification    *Identification
 	AirbornePosition  *AirbornePosition
 	Velocity          *Velocity
 	AircraftStatus    *AircraftStatus
 	OperationalStatus *OperationalStatus
+	AllCall           *AllCall
+	Surveillance      *Surveillance
 }
 
 // AirbornePosition is the content of ADS-B type codes 9–18 (barometric altitude) and 20–22 (GNSS height).
@@ -79,6 +87,10 @@ func Decode(msg []byte, t time.Time, opt Options) (Message, error) {
 	switch m.DF {
 	case 17, 18:
 		return decodeExtendedSquitter(msg, m, opt)
+	case 11:
+		return decodeAllCall(msg, m)
+	case 0, 4, 5, 16, 20, 21:
+		return decodeSurveillance(msg, m)
 	default:
 		return m, ErrUnsupported
 	}
@@ -110,6 +122,9 @@ func decodeExtendedSquitter(msg []byte, m Message, opt Options) (Message, error)
 
 	m.ICAO = uint32(bits(msg, 9, 24))
 	m.TC = int(bits(msg, 33, 5))
+	if m.DF == 17 {
+		m.OnGround = groundFromCA(int(bits(msg, 6, 3)))
+	}
 
 	switch {
 	case m.TC >= 1 && m.TC <= 4:
@@ -178,19 +193,27 @@ const charset = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ##### ###############0123456789#####
 func decodeIdentification(msg []byte) (Identification, error) {
 	tc := int(bits(msg, 33, 5))
 	ca := int(bits(msg, 38, 3))
-
-	var cs [8]byte
-	for i := range cs {
-		cs[i] = charset[bits(msg, 41+6*i, 6)]
-	}
-	callsign := strings.TrimRight(string(cs[:]), " ")
-	if strings.ContainsRune(callsign, '#') {
-		return Identification{}, fmt.Errorf("%w: %q", ErrBadCallsign, callsign)
+	callsign, err := decodeCallsign(msg)
+	if err != nil {
+		return Identification{}, err
 	}
 	return Identification{
 		Callsign: callsign,
 		Category: fmt.Sprintf("%c%d", 'A'+4-tc, ca),
 	}, nil
+}
+
+// decodeCallsign reads 8 six-bit characters from bits 41–88 (ES TC 1–4 and Comm-B BDS 2,0 share this layout).
+func decodeCallsign(msg []byte) (string, error) {
+	var cs [8]byte
+	for i := range cs {
+		cs[i] = charset[bits(msg, 41+6*i, 6)]
+	}
+	callsign := strings.TrimRight(string(cs[:]), " ")
+	if callsign == "" || strings.ContainsRune(callsign, '#') {
+		return "", fmt.Errorf("%w: %q", ErrBadCallsign, callsign)
+	}
+	return callsign, nil
 }
 
 // ICAOString formats a 24-bit address as 6 upper-case hex digits.
