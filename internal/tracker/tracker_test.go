@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"encoding/hex"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -212,5 +213,28 @@ func TestCountry(t *testing.T) {
 		if b.from > b.to || i > 0 && b.from <= countryBlocks[i-1].to {
 			t.Errorf("block %d (%s) is inverted or overlaps the previous one", i, b.country)
 		}
+	}
+}
+
+func TestTracker_SurfacePosition(t *testing.T) {
+	tr, _, st := newTestTracker(t)
+	// The 1090 MHz Riddle surface vectors: an aircraft taxiing at Schiphol, ~22 NM from the test receiver
+	feed(t, tr, t0, "8C4841753AAB238733C8CD4020B1")
+	feed(t, tr, t0.Add(time.Second), "8C4841753A9A153237AEF0F275BE")
+	a, ok := tr.Get(0x484175)
+	if !ok {
+		t.Fatal("aircraft missing")
+	}
+	if !a.HasPosition || a.Lat == nil || math.Abs(*a.Lat-52.32056) > 1e-4 || math.Abs(*a.Lon-4.73574) > 1e-4 {
+		t.Errorf("position %v, %v", a.Lat, a.Lon)
+	}
+	if a.OnGround == nil || !*a.OnGround || a.GroundSpeed == nil || *a.GroundSpeed != 17 || a.Track == nil || *a.Track != 92.8 {
+		t.Errorf("onGround=%v gs=%v track=%v", a.OnGround, a.GroundSpeed, a.Track)
+	}
+	if a.AltBaro != nil {
+		t.Errorf("altBaro = %v, want none", *a.AltBaro)
+	}
+	if got := st.Positions.Load(); got != 2 {
+		t.Errorf("positions = %d, want 2", got)
 	}
 }

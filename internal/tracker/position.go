@@ -13,6 +13,8 @@ const (
 	maxPlausibleSpeedKt = 1500
 	// receiverLocalRangeNm is how far from the receiver a receiver-referenced local CPR decode is unambiguous.
 	receiverLocalRangeNm = 180
+	// surfaceLocalRangeNm is how far from its reference a surface CPR decode is unambiguous (90° zones).
+	surfaceLocalRangeNm = 45
 )
 
 var (
@@ -111,6 +113,30 @@ func (r PositionResolver) Resolve(st *CPRState, f modes.CPRFrame, t time.Time) (
 
 	if pos.Method == MethodLocalReceiver && geo.DistanceNm(r.Receiver, pos.Point) > receiverLocalRangeNm {
 		return pos, errors.Join(globalErr, ErrOutOfRange)
+	}
+	if err := r.check(st, pos); err != nil {
+		return pos, err
+	}
+	st.last = &pos
+	return pos, nil
+}
+
+// ResolveSurface decodes surface frame f received at t against the aircraft's recent position, otherwise against
+// the receiver (accepted only within 45 NM), and applies the range and speed checks. Surface frames never take
+// part in a global even/odd pair.
+// The 1090 MHz Riddle, "Surface position" (https://mode-s.org/1090mhz/content/ads-b/4-surface-position.html).
+func (r PositionResolver) ResolveSurface(st *CPRState, f modes.CPRFrame, t time.Time) (Position, error) {
+	pos := Position{Time: t, Method: MethodLocalReceiver}
+	ref := r.Receiver
+	if st.last != nil && t.Sub(st.last.Time) <= r.RefMaxAge {
+		pos.Method, ref = MethodLocalAircraft, st.last.Point
+	}
+	pos.Lat, pos.Lon = modes.CPRSurfaceLocal(f, ref.Lat, ref.Lon)
+	if pos.Lon >= 180 {
+		pos.Lon -= 360
+	}
+	if pos.Method == MethodLocalReceiver && geo.DistanceNm(r.Receiver, pos.Point) > surfaceLocalRangeNm {
+		return pos, ErrOutOfRange
 	}
 	if err := r.check(st, pos); err != nil {
 		return pos, err

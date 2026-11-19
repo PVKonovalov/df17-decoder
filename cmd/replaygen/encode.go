@@ -131,3 +131,39 @@ func altitudeReply(icao uint32, ft float64) []byte {
 func identityReply(icao uint32, squawk string) []byte {
 	return shortReply(5<<27|identity13(squawk), icao)
 }
+
+// surfacePosition: TC 6 surface position with movement and a valid ground track, CA 4 (on ground).
+func surfacePosition(icao uint32, lat, lon, gs, trackDeg float64, odd bool) []byte {
+	cpr := modes.EncodeSurfaceCPR(lat, lon, odd)
+	f := uint64(0)
+	if odd {
+		f = 1
+	}
+	trk := uint64(math.Round(math.Mod(trackDeg+360, 360)*128/360)) % 128
+	return onGround(extendedSquitter(icao, fields(56,
+		[2]uint64{6, 5}, [2]uint64{movement(gs), 7}, [2]uint64{1, 1}, [2]uint64{trk, 7},
+		[2]uint64{0, 1}, [2]uint64{f, 1}, [2]uint64{uint64(cpr.Lat), 17}, [2]uint64{uint64(cpr.Lon), 17},
+	)))
+}
+
+// movement is the inverse of modes.Movement: the 7-bit code nearest to gs kt (1 = stopped, 124 = 175 kt or more).
+func movement(gs float64) uint64 {
+	codes := []float64{2, 9, 13, 39, 94, 109, 124}
+	kt := []float64{0.125, 1, 2, 15, 70, 100, 175}
+	if gs < kt[0] {
+		return 1
+	}
+	for i := 1; i < len(codes); i++ {
+		if gs < kt[i] {
+			return uint64(codes[i-1] + math.Round((gs-kt[i-1])*(codes[i]-codes[i-1])/(kt[i]-kt[i-1])))
+		}
+	}
+	return 124
+}
+
+// onGround sets CA 4 (on ground) in a DF17 frame and recomputes its parity.
+func onGround(msg []byte) []byte {
+	msg[0] = 17<<3 | 4
+	setParity(msg, 0)
+	return msg
+}

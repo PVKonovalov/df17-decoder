@@ -29,6 +29,7 @@ type options struct {
 	emergencySqk string
 	arrivals     float64 // fraction of aircraft that appear during the capture rather than at its start
 	departures   float64 // fraction of aircraft that stop transmitting before the end
+	taxiing      int     // extra aircraft taxiing at an airfield near the receiver (surface positions)
 }
 
 type aircraft struct {
@@ -43,6 +44,9 @@ type aircraft struct {
 	vr         float64 // ft/min
 	turn       float64 // degrees/s
 	emergency  bool
+	ground     bool    // taxiing: sends surface positions and stays near home
+	homeLat    float64 // airfield the taxiing aircraft stays around
+	homeLon    float64
 	odd        bool
 	phase      int // spreads periodic messages over ticks
 	identEvery int // ticks
@@ -110,15 +114,52 @@ func newFleet(o options, r *rand.Rand) []*aircraft {
 		e.adsb, e.emergency, e.squawk, e.callsign = true, true, o.emergencySqk, "ELY7700"
 		e.start, e.end = 0, ticks
 	}
+	return append(fleet, newTaxiing(o, r, seen)...)
+}
+
+// newTaxiing places o.taxiing aircraft on an airfield 6 NM north-east of the receiver, moving at taxi speeds.
+func newTaxiing(o options, r *rand.Rand, seen map[uint32]bool) []*aircraft {
+	cosLat := math.Cos(o.lat * math.Pi / 180)
+	homeLat, homeLon := o.lat+6*math.Cos(math.Pi/4)/60, o.lon+6*math.Sin(math.Pi/4)/(60*cosLat)
+	ticks := int(o.duration / o.step)
+	fleet := make([]*aircraft, o.taxiing)
+	for i := range fleet {
+		var icao uint32
+		for icao == 0 || seen[icao] {
+			icao = icaoBlocks[r.IntN(len(icaoBlocks))] | uint32(r.IntN(0x1000))
+		}
+		seen[icao] = true
+		fleet[i] = &aircraft{
+			icao:       icao,
+			callsign:   fmt.Sprintf("%s%d", airlines[r.IntN(len(airlines))], 10+r.IntN(990)),
+			squawk:     "2000",
+			adsb:       true,
+			ground:     true,
+			homeLat:    homeLat,
+			homeLon:    homeLon,
+			lat:        homeLat + (r.Float64()-0.5)/60,
+			lon:        homeLon + (r.Float64()-0.5)/(60*cosLat),
+			gs:         []float64{0, 8, 12, 15, 20}[r.IntN(5)],
+			track:      r.Float64() * 360,
+			turn:       (r.Float64() - 0.5) * 6,
+			phase:      r.IntN(10),
+			identEvery: 10,
+			end:        ticks,
+		}
+	}
 	return fleet
 }
 
 // move advances the aircraft by dt seconds, turning back towards the receiver near the edge of range and
 // reversing climbs and descents at the altitude limits.
 func (a *aircraft) move(o options, dt float64) {
-	dLat := (a.lat - o.lat) * 60
-	dLon := (a.lon - o.lon) * 60 * math.Cos(o.lat*math.Pi/180)
-	if math.Hypot(dLat, dLon) > o.maxRangeNm*0.9 {
+	centerLat, centerLon, radiusNm := o.lat, o.lon, o.maxRangeNm*0.9
+	if a.ground {
+		centerLat, centerLon, radiusNm = a.homeLat, a.homeLon, 1
+	}
+	dLat := (a.lat - centerLat) * 60
+	dLon := (a.lon - centerLon) * 60 * math.Cos(o.lat*math.Pi/180)
+	if math.Hypot(dLat, dLon) > radiusNm {
 		home := math.Mod(math.Atan2(-dLon, -dLat)*180/math.Pi+360, 360)
 		diff := math.Mod(home-a.track+540, 360) - 180
 		a.track += math.Copysign(math.Min(math.Abs(diff), 3*dt), diff)
@@ -143,6 +184,14 @@ func (a *aircraft) frames(n int) [][]byte {
 		return nil
 	}
 	var out [][]byte
+	if a.ground {
+		out = append(out, surfacePosition(a.icao, a.lat, a.lon, a.gs, a.track, a.odd))
+		a.odd = !a.odd
+		if (n+a.phase)%a.identEvery == 0 {
+			out = append(out, onGround(identification(a.icao, a.callsign)))
+		}
+		return out
+	}
 	if a.adsb {
 		out = append(out, airbornePosition(a.icao, a.lat, a.lon, a.alt, a.odd))
 		a.odd = !a.odd
@@ -225,6 +274,7 @@ func main() {
 	flag.StringVar(&o.emergencySqk, "emergency", "7700", "squawk of one emergency aircraft (empty: none)")
 	flag.Float64Var(&o.arrivals, "arrivals", 0.4, "fraction of aircraft that appear during the capture")
 	flag.Float64Var(&o.departures, "departures", 0.3, "fraction of aircraft that stop transmitting before the end")
+	flag.IntVar(&o.taxiing, "taxiing", 6, "extra aircraft taxiing at an airfield 6 nm north-east of the receiver")
 	flag.Parse()
 	o.step = 0.5
 	if *cfgPath != "" {
@@ -251,5 +301,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %d frames for %d aircraft over %.0f s around %.4f, %.4f\n", n, o.count, o.duration, o.lat, o.lon)
+	fmt.Fprintf(os.Stderr, "wrote %d frames for %d aircraft (+%d taxiing) over %.0f s around %.4f, %.4f\n", n, o.count, o.taxiing, o.duration, o.lat, o.lon)
 }

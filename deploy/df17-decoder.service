@@ -1,0 +1,46 @@
+# systemd unit for df17-decoder. Install (see README "Running as a service"):
+#   sudo install -m 755 df17-decoder /usr/local/bin/
+#   sudo install -D -m 644 config/config.yaml /etc/df17-decoder/config.yaml
+#   sudo install -m 644 deploy/df17-decoder.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now df17-decoder
+[Unit]
+Description=df17-decoder Mode S / ADS-B decoder and web UI
+Documentation=https://github.com/PVKonovalov/df17-decoder
+Wants=network-online.target
+After=network-online.target dump1090-fa.service
+
+[Service]
+ExecStart=/usr/local/bin/df17-decoder -config /etc/df17-decoder/config.yaml
+Restart=on-failure
+RestartSec=5s
+# Exit code 2 is a config error: fix the file instead of restarting in a loop.
+RestartPreventExitStatus=2
+
+# Unprivileged throwaway user; the service writes nothing to disk.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# A listen port below 1024 (e.g. api.listen ":80") also needs:
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+#CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

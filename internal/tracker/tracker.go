@@ -131,7 +131,22 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 				a.AltBaro = p.Altitude
 			}
 		}
-		t.updatePosition(e, m, p)
+		pos, err := t.opt.Resolver.Resolve(&e.cpr, p.CPR, m.Time)
+		var attrs []any
+		if p.Altitude != nil {
+			attrs = append(attrs, "altitude", *p.Altitude, "gnss", p.GNSS)
+		}
+		t.updatePosition(e, pos, err, attrs...)
+	}
+	if p := m.SurfacePosition; p != nil {
+		if p.GroundSpeed != nil {
+			a.GroundSpeed = new(round(*p.GroundSpeed, 1))
+		}
+		if p.Track != nil {
+			a.Track = new(round(*p.Track, 1))
+		}
+		pos, err := t.opt.Resolver.ResolveSurface(&e.cpr, p.CPR, m.Time)
+		t.updatePosition(e, pos, err, "surface", true)
 	}
 	if v := m.Velocity; v != nil {
 		t.updateVelocity(a, v)
@@ -221,13 +236,12 @@ func (t *Tracker) updateVelocity(a *Aircraft, v *modes.Velocity) {
 	t.opt.Logger.Debug("velocity", attrs...)
 }
 
-// updatePosition resolves an airborne position, counts the outcome and logs the first fix of each aircraft
-// at info level, later ones at debug.
-func (t *Tracker) updatePosition(e *entry, m modes.Message, p *modes.AirbornePosition) {
+// updatePosition applies a resolved position (pos, err) to the aircraft, counts the outcome and logs the first fix
+// of each aircraft at info level, later ones at debug, with extra log attributes.
+func (t *Tracker) updatePosition(e *entry, pos Position, err error, extra ...any) {
 	a := &e.a
 	firstFix := !a.HasPosition
 
-	pos, err := t.opt.Resolver.Resolve(&e.cpr, p.CPR, m.Time)
 	switch {
 	case err == nil:
 		t.opt.Stats.Positions.Add(1)
@@ -249,9 +263,7 @@ func (t *Tracker) updatePosition(e *entry, m modes.Message, p *modes.AirbornePos
 		"icao", a.ICAO, "lat", round(pos.Lat, 5), "lon", round(pos.Lon, 5), "method", pos.Method,
 		"distanceNm", round(*a.DistanceNm, 1), "bearing", round(*a.Bearing, 0),
 	}
-	if p.Altitude != nil {
-		attrs = append(attrs, "altitude", *p.Altitude, "gnss", p.GNSS)
-	}
+	attrs = append(attrs, extra...)
 	if firstFix {
 		t.opt.Logger.Info("position", attrs...)
 	} else {

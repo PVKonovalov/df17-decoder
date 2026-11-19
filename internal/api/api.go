@@ -46,6 +46,7 @@ type Deps struct {
 	Stats          *stats.Stats
 	Source         func() source.StatsSnapshot
 	SourceURL      string
+	Version        string // program version reported in stats
 	StreamInterval time.Duration
 	Logger         *slog.Logger
 	Now            func() time.Time // wall clock; time.Now when nil
@@ -193,6 +194,7 @@ type sourceStatus struct {
 }
 
 type statsResponse struct {
+	Version            string         `json:"version"`
 	UptimeSeconds      float64        `json:"uptimeSeconds"`
 	Source             sourceStatus   `json:"source"`
 	Frames             uint64         `json:"frames"`
@@ -218,6 +220,7 @@ func (s *server) statsSnapshot() statsResponse {
 	st := s.Stats.Snapshot(now)
 	src := s.Source()
 	resp := statsResponse{
+		Version:       s.Version,
 		UptimeSeconds: math.Round(st.Uptime.Seconds()),
 		Source: sourceStatus{
 			URL:            s.SourceURL,

@@ -215,7 +215,7 @@ func TestDecode_OperationalStatus(t *testing.T) {
 }
 
 func TestDecode_UnsupportedTypeCodes(t *testing.T) {
-	for _, tc := range []uint64{0, 5, 8, 23, 24, 27, 29, 30} {
+	for _, tc := range []uint64{0, 23, 24, 27, 29, 30} {
 		if _, err := Decode(makeES(1, me([2]uint64{tc, 5})), time.Time{}, Options{}); !errors.Is(err, ErrUnsupportedTC) {
 			t.Errorf("TC %d: err = %v, want ErrUnsupportedTC", tc, err)
 		}

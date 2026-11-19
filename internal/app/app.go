@@ -18,6 +18,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
+	"github.com/PVKonovalov/df17-decoder/internal/version"
 	"github.com/PVKonovalov/df17-decoder/web"
 )
 
@@ -124,6 +125,7 @@ func (s *Service) Run(ctx context.Context) error {
 			Stats:          s.Stats,
 			Source:         s.SourceStats,
 			SourceURL:      s.cfg.Source.URL,
+			Version:        version.Get().Version,
 			StreamInterval: s.cfg.API.StreamInterval.D(),
 			Logger:         s.log,
 		}),

@@ -4,7 +4,7 @@ import { useEffect, useMemo, type Dispatch } from 'react'
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { Action, State } from '../state/reducer'
 import { AircraftLayer } from './AircraftLayer'
-import { ALT_MAX_FT, altitudeColor, destinationNorth } from './style'
+import { ALT_MAX_FT, altitudeColor, destinationNorth, GROUND_COLOR, NO_ALT_COLOR } from './style'
 
 const NM_TO_M = 1852
 const RING_NM = [25, 50, 100] as const
@@ -148,6 +148,10 @@ export function AltitudeLegend() {
         {LEGEND_TICKS.map((ft) => (
           <span key={ft}>{ft === 0 ? '0' : `${ft / 1000}k`}</span>
         ))}
+      </div>
+      <div className="legend-extra">
+        <span className="legend-swatch" style={{ background: GROUND_COLOR }} /> on ground
+        <span className="legend-swatch" style={{ background: NO_ALT_COLOR }} /> unknown
       </div>
     </div>
   )

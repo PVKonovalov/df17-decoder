@@ -63,6 +63,7 @@ func newFixture(t *testing.T) *fixture {
 		Stats:          st,
 		Source:         func() source.StatsSnapshot { return f.src },
 		SourceURL:      "tcp://test:30002",
+		Version:        "v1.2.3",
 		StreamInterval: 20 * time.Millisecond,
 	})
 	return f
@@ -195,7 +196,7 @@ func TestStats(t *testing.T) {
 	if src["connected"] != true || src["reconnects"].(float64) != 2 || src["malformedLines"].(float64) != 3 || src["url"] != "tcp://test:30002" {
 		t.Errorf("source = %v", src)
 	}
-	if s["aircraft"].(float64) != 3 || s["positions"].(float64) != 4 || s["frames"].(float64) != 2 {
+	if s["version"] != "v1.2.3" || s["aircraft"].(float64) != 3 || s["positions"].(float64) != 4 || s["frames"].(float64) != 2 {
 		t.Errorf("stats = %v", s)
 	}
 	if perDF := s["framesPerDf"].(map[string]any); perDF["17"].(float64) != 1 || perDF["4"].(float64) != 1 {

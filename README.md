@@ -8,7 +8,8 @@ WebSocket, and shown in a built-in web UI with a map and a table.
 What it decodes:
 
 - **DF17/18 extended squitter:** callsign and emitter category, barometric and GNSS altitude, airborne position
-  (global and local CPR), velocity (ground speed or airspeed with heading, vertical rate), emergency state and
+  (global and local CPR), surface position with taxi speed and track (decoded against the receiver within 45 NM),
+  velocity (ground speed or airspeed with heading, vertical rate), emergency state and
   squawk, ADS-B version.
 - **Non-ADS-B Mode S:**
   - DF11 all-call replies.
@@ -41,6 +42,7 @@ receiver:
 ```sh
 go run ./cmd/df17-decoder -config config/config.yaml
 go run ./cmd/df17-decoder -config config/config.yaml -log-level debug   # override log.level
+go run ./cmd/df17-decoder -version   # print the version and exit
 ```
 
 Without `-config` the service runs on built-in defaults (`tcp://localhost:30002`, API on `:8080`). Every key is
@@ -61,13 +63,57 @@ source:
   replaySpeed: 0      # 0 = as fast as possible, 1.0 = real time (uses @-timestamps)
 ```
 
+## Running as a service
+
+### Binaries and version
+
+```sh
+make build   # ./df17-decoder for this machine
+make dist    # static binaries in dist/ for linux/arm64 (64-bit Raspberry Pi OS), linux/arm (32-bit), linux/amd64
+```
+
+The version comes from the nearest git tag (`git describe --tags --always --dirty`, e.g. `v1.0.0` or
+`v1.0.0-3-g4a2b4d4`). `make` links it into the binary. A plain `go build` or `go install …@v1.0.0` falls back to the
+version Go records itself. `-version` prints it, the service logs it at startup, `/api/stats` reports it, and the
+UI shows it when you hover over the title. To release, tag the commit (`git tag v1.1.0`) and run `make dist`.
+
+### systemd
+
+[`deploy/df17-decoder.service`](deploy/df17-decoder.service) runs the binary as an unprivileged, sandboxed user and
+restarts it on failure (not on a config error, exit code 2). On the receiver, for example a Raspberry Pi running
+dump1090-fa:
+
+```sh
+sudo install -m 755 dist/df17-decoder-v1.0.0-linux-arm64 /usr/local/bin/df17-decoder
+sudo install -D -m 644 config/config.yaml /etc/df17-decoder/config.yaml
+sudo install -m 644 deploy/df17-decoder.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now df17-decoder
+journalctl -u df17-decoder -f   # logs
+```
+
+After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. To listen on a port
+below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
+
+### Docker
+
+```sh
+make docker   # builds df17-decoder:<version> and :latest (UI, static binary, distroless non-root image)
+docker run -d --name df17 --restart unless-stopped -p 8080:8080 \
+  -v "$PWD/config/config.yaml:/etc/df17-decoder/config.yaml:ro" df17-decoder
+```
+
+In the container, `localhost` is the container itself. Point `source.url` at the dump1090 host's address, or use
+`--network host` on Linux. For another architecture, use buildx, for example
+`docker buildx build --platform linux/arm64 --build-arg VERSION=$(git describe --tags) -t df17-decoder .`.
+
 ## HTTP API
 
 | Endpoint | Description |
 |---|---|
 | `GET /api/aircraft` | Current aircraft. `?withPosition=true`, `?sort=distance\|altitude\|lastSeen` |
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
-| `GET /api/stats` | Source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
+| `GET /api/stats` | Version, source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
 | `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` and `map` once, then `aircraft` and `stats` every `api.streamInterval` |
 | `GET /api/map` | Tile layer for the UI from the `map` config section |
@@ -110,6 +156,7 @@ $ curl -s localhost:8080/api/stats
 
 ```json
 {
+  "version": "v1.0.0",
   "uptimeSeconds": 0,
   "source": {
     "url": "file://testdata/capture.txt",
@@ -140,7 +187,8 @@ there's nothing else to deploy.
 
 - **Map** (Leaflet, OpenStreetMap tiles, no API key): the receiver with range rings at 25/50/100 nm, and
   aircraft rotated by track and colored by altitude (legend bottom-left). Labels show callsign and altitude
-  in hundreds of feet. Trails cover the last 5 minutes. Aircraft whose position is older than 30 s fade out.
+  in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails cover
+  the last 5 minutes. Aircraft whose position is older than 30 s fade out.
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
   unless you use your own tile server (see below).
 - **Table:** every aircraft, including Mode-S-only ones (marked "no pos"). Every column sorts, with unknown
@@ -222,8 +270,9 @@ make busy         # only regenerates testdata/busy.txt
 
 `cmd/replaygen` writes the synthetic capture around the receiver in `config/demo.yaml` (`-config`). By default
 40% of the aircraft arrive during the replay, with airliners entering at the edge of coverage, so new rows keep
-appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only, and one squawks 7700.
-Flags such as `-n`, `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon`
+appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only, one squawks 7700, and 6 more
+taxi at an airfield 6 nm north-east of the receiver (surface positions, "GND" on the map).
+Flags such as `-n`, `-taxiing`, `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon`
 change this (`go run ./cmd/replaygen -h`).
 
 ## Architecture

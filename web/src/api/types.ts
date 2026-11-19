@@ -86,6 +86,7 @@ export interface MapConfig {
 
 /** api.statsResponse */
 export interface Stats {
+  version: string
   uptimeSeconds: number
   source: {
     url: string

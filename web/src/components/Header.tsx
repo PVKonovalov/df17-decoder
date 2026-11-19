@@ -20,7 +20,9 @@ export function Header({ state }: { state: State }) {
 
   return (
     <header className="header">
-      <h1 className="header-title">df17-decoder</h1>
+      <h1 className="header-title" title={stats ? `version ${stats.version}` : undefined}>
+        df17-decoder
+      </h1>
       <dl className="header-stats">
         <div>
           <dt>Aircraft</dt>

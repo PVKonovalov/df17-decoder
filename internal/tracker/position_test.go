@@ -156,3 +156,35 @@ func TestResolve_ReceiverLocalLimitedTo180Nm(t *testing.T) {
 		t.Errorf("187 NM: unexpectedly decoded %+v", p)
 	}
 }
+
+func TestResolveSurface(t *testing.T) {
+	r := resolver(25.07, 22.87)
+	var st CPRState
+	p, err := r.ResolveSurface(&st, modes.EncodeSurfaceCPR(25.12, 22.91, false), t0)
+	if err != nil || p.Method != MethodLocalReceiver || !near(p.Point, 25.12, 22.91) {
+		t.Fatalf("receiver ref: %+v %v", p, err)
+	}
+	p, err = r.ResolveSurface(&st, modes.EncodeSurfaceCPR(25.1205, 22.9101, true), t0.Add(2*time.Second))
+	if err != nil || p.Method != MethodLocalAircraft || !near(p.Point, 25.1205, 22.9101) {
+		t.Fatalf("aircraft ref: %+v %v", p, err)
+	}
+	if st.even != nil || st.odd != nil {
+		t.Error("surface frames must not enter the airborne even/odd pair")
+	}
+	if _, err := r.ResolveSurface(&st, modes.EncodeSurfaceCPR(25.6, 22.91, false), t0.Add(3*time.Second)); !errors.Is(err, ErrImpossibleSpeed) {
+		t.Errorf("30 NM jump in 1 s: err = %v", err)
+	}
+}
+
+func TestResolveSurface_ReceiverRefLimitedTo45Nm(t *testing.T) {
+	r := resolver(25.07, 22.87)
+	var st CPRState
+	if p, err := r.ResolveSurface(&st, modes.EncodeSurfaceCPR(25.67, 22.87, false), t0); err != nil || !near(p.Point, 25.67, 22.87) {
+		t.Errorf("36 NM: %+v %v", p, err)
+	}
+	st = CPRState{}
+	// 0.9° north (54 NM) lies beyond half a 1.5° zone and aliases to ~36 NM south, or is rejected
+	if p, err := r.ResolveSurface(&st, modes.EncodeSurfaceCPR(25.97, 22.87, false), t0); err == nil && near(p.Point, 25.97, 22.87) {
+		t.Errorf("54 NM decoded unambiguously: %+v", p)
+	}
+}

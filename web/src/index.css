@@ -536,3 +536,22 @@ body {
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
+
+.legend-extra {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-swatch:not(:first-child) {
+  margin-left: 6px;
+}

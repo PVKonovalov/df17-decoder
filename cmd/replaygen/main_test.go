@@ -9,8 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
+	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 )
 
 func decode(t *testing.T, msg []byte) modes.Message {
@@ -176,5 +179,63 @@ func TestApplyConfig(t *testing.T) {
 
 	if err := applyConfig(&o, filepath.Join(t.TempDir(), "missing.yaml"), nil); err == nil {
 		t.Error("missing config: expected error")
+	}
+}
+
+func TestSurfaceEncoder_RoundTrip(t *testing.T) {
+	m := decode(t, surfacePosition(0x738ABC, 25.12, 22.93, 15, 271, true))
+	p := m.SurfacePosition
+	if p == nil || m.TC != 6 || m.OnGround == nil || !*m.OnGround || p.CPR != modes.EncodeSurfaceCPR(25.12, 22.93, true) {
+		t.Fatalf("surface: tc=%d %+v onGround=%v", m.TC, p, m.OnGround)
+	}
+	if math.Abs(*p.GroundSpeed-15) > 0.5 || math.Abs(*p.Track-271) > 360.0/128 {
+		t.Errorf("gs=%v track=%v", *p.GroundSpeed, *p.Track)
+	}
+	if m := decode(t, onGround(identification(0x738ABC, "ELY1"))); m.OnGround == nil || !*m.OnGround || m.Identification.Callsign != "ELY1" {
+		t.Errorf("ground identification: %+v", m)
+	}
+	for _, kt := range []float64{0, 0.125, 0.5, 1, 1.75, 2, 14.5, 15, 19, 69, 70, 98, 100, 170, 175, 300} {
+		if got := modes.Movement(int(movement(kt))); got == nil || math.Abs(*got-min(kt, 175)) > 0.07 {
+			t.Errorf("movement(%v) decodes to %v", kt, got)
+		}
+	}
+}
+
+func TestGenerate_Taxiing(t *testing.T) {
+	o := options{lat: 25.07, lon: 22.87, count: 5, duration: 120, step: 0.5, maxRangeNm: 150, seed: 5, taxiing: 4}
+	var buf bytes.Buffer
+	if _, err := generate(&buf, o); err != nil {
+		t.Fatal(err)
+	}
+	tr := tracker.New(tracker.Options{
+		TTL:             time.Minute,
+		KnownAddressTTL: time.Minute,
+		Resolver: tracker.PositionResolver{Receiver: geo.Point{Lat: o.lat, Lon: o.lon}, MaxRangeNm: 300,
+			PairMaxAge: 10 * time.Second, RefMaxAge: time.Minute},
+		Stats: stats.New(time.Time{}),
+	})
+	t0 := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	sc := bufio.NewScanner(&buf)
+	for sc.Scan() {
+		data, ts, err := source.ParseAVR(sc.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := decode(t, data)
+		m.Time = t0.Add(time.Duration(ts) * time.Second / clockHz)
+		tr.Update(m, nil)
+	}
+	ground := 0
+	for _, a := range tr.Snapshot() {
+		if a.OnGround == nil || !*a.OnGround {
+			continue
+		}
+		ground++
+		if !a.HasPosition || *a.DistanceNm < 4 || *a.DistanceNm > 8 || a.GroundSpeed == nil || *a.GroundSpeed > 25 || a.AltBaro != nil {
+			t.Errorf("%s: pos=%v dist=%v gs=%v alt=%v", a.ICAO, a.HasPosition, a.DistanceNm, a.GroundSpeed, a.AltBaro)
+		}
+	}
+	if ground != o.taxiing {
+		t.Errorf("on ground: %d, want %d", ground, o.taxiing)
 	}
 }

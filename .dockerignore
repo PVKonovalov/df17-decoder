@@ -1,0 +1,11 @@
+.git
+.idea
+.vscode
+.DS_Store
+.env
+/df17-decoder
+/dist
+/config/config.yaml
+/testdata/busy.txt
+/web/node_modules
+/web/dist/app

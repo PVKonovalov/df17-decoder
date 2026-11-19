@@ -3,6 +3,7 @@ import { MapContainer } from 'react-leaflet'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Aircraft } from '../api/types'
 import { AircraftLayer } from './AircraftLayer'
+import { GROUND_COLOR } from './style'
 
 afterEach(cleanup)
 
@@ -56,5 +57,18 @@ describe('AircraftLayer', () => {
   it('labels markers with callsign and altitude', () => {
     const { marker } = renderLayer([ac('738001', '2026-11-19T09:55:00Z', { callsign: 'ELY1', altBaro: 4000 })])
     expect(marker('738001')?.querySelector('.ac-label')?.textContent).toBe('ELY1 040')
+  })
+})
+
+const groundColor = document.createElement('i')
+groundColor.style.color = GROUND_COLOR
+
+describe('AircraftLayer on the ground', () => {
+  it('labels taxiing aircraft GND and colors them with the ground color', () => {
+    const { marker } = renderLayer([ac('738004', '2026-11-19T09:55:00Z', { callsign: 'ELY2', onGround: true, groundSpeed: 12 })])
+    const m = marker('738004')
+    expect(m?.querySelector('.ac-label')?.textContent).toBe('ELY2 GND')
+    const plane = m?.querySelector<HTMLElement>('.ac-plane')
+    expect(plane?.style.color).toBe(groundColor.style.color)
   })
 })
