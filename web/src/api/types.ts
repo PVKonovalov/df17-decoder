@@ -76,6 +76,14 @@ export interface Receiver {
   maxRangeNm: number
 }
 
+/** api.MapConfig: the tile layer, from the map section of the service config */
+export interface MapConfig {
+  tileUrl: string
+  attribution: string
+  maxZoom: number
+  darkFilter: boolean
+}
+
 /** api.statsResponse */
 export interface Stats {
   uptimeSeconds: number
@@ -103,5 +111,6 @@ export interface Stats {
 /** api.wsMessage as received on /api/ws */
 export type WsMessage =
   | { type: 'receiver'; data: Receiver }
+  | { type: 'map'; data: MapConfig }
   | { type: 'aircraft'; data: Aircraft[] }
   | { type: 'stats'; data: Stats }

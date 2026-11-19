@@ -31,9 +31,9 @@ endif
 run: build
 	./$(BIN) -config $(CONFIG)
 
-# Synthetic 10-minute capture with 150 moving aircraft (Mode-S-only and one 7700 included).
+# Synthetic 10-minute capture with 150 aircraft around the receiver in config/demo.yaml.
 busy:
-	go run ./cmd/replaygen -o testdata/busy.txt
+	go run ./cmd/replaygen -config config/demo.yaml -o testdata/busy.txt
 
 demo: build busy
 	./$(BIN) -config config/demo.yaml

@@ -29,9 +29,18 @@ type Receiver struct {
 	MaxRangeNm float64 `json:"maxRangeNm"`
 }
 
+// MapConfig is the web UI tile layer served on /api/map and in the "map" WebSocket message.
+type MapConfig struct {
+	TileURL     string `json:"tileUrl"`
+	Attribution string `json:"attribution"`
+	MaxZoom     int    `json:"maxZoom"`
+	DarkFilter  bool   `json:"darkFilter"`
+}
+
 // Deps are the read-only views the API serves.
 type Deps struct {
 	Receiver       Receiver
+	Map            MapConfig
 	UI             fs.FS // built web UI served at /; nil disables it
 	Tracker        *tracker.Tracker
 	Stats          *stats.Stats
@@ -60,6 +69,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/stream", s.stream)
 	mux.HandleFunc("GET /api/ws", s.ws)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
+	mux.HandleFunc("GET /api/map", s.mapConfig)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint: "+r.Method+" "+r.URL.Path)
@@ -70,6 +80,10 @@ func New(d Deps) http.Handler {
 
 func (s *server) receiver(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.Receiver)
+}
+
+func (s *server) mapConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Map)
 }
 
 // ui serves files of the embedded UI; GET paths that are not files fall back to index.html (SPA routing).

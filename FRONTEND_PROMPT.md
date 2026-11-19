@@ -2,7 +2,7 @@
 
 ## Context
 
-Read `AGENT_PROMPT.md` and `CLAUDE.md` first. This repo is a Go service that decodes Mode S / ADS-B frames from my home receiver (RTL-SDR Blog V4 + dump1090-fa, near Rosh HaAyin, Israel, under the Ben Gurion approach paths). It keeps a live aircraft table and serves it over an HTTP/JSON API:
+Read `AGENT_PROMPT.md` and `CLAUDE.md` first. This repo is a Go service that decodes Mode S / ADS-B frames from my home receiver (RTL-SDR Blog V4 + dump1090-fa). It keeps a live aircraft table and serves it over an HTTP/JSON API:
 
 - `GET /api/aircraft`, `GET /api/aircraft/{icao}`: aircraft state, camelCase JSON. Unknown fields are left out, never sent as zero.
 - `GET /api/stream`: Server-Sent Events, a full aircraft snapshot every `api.streamInterval` (1 s by default). Kept for curl/tools; the UI doesn't use it.

@@ -12,6 +12,8 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+
+	"github.com/PVKonovalov/df17-decoder/internal/config"
 )
 
 const clockHz = 12_000_000
@@ -190,11 +192,31 @@ func generate(w io.Writer, o options) (int, error) {
 	return lines, bw.Flush()
 }
 
+// applyConfig takes the receiver position from the service config at path, unless -lat/-lon were given
+// (explicit holds the flag names set on the command line), and keeps the traffic inside receiver.maxRangeNm.
+func applyConfig(o *options, path string, explicit map[string]bool) error {
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		return err
+	}
+	if !explicit["lat"] {
+		o.lat = cfg.Receiver.Lat
+	}
+	if !explicit["lon"] {
+		o.lon = cfg.Receiver.Lon
+	}
+	if !explicit["range"] {
+		o.maxRangeNm = min(o.maxRangeNm, cfg.Receiver.MaxRangeNm*0.9)
+	}
+	return nil
+}
+
 func main() {
 	var o options
 	out := flag.String("o", "testdata/busy.txt", "output file (- for stdout)")
-	flag.Float64Var(&o.lat, "lat", 32.09, "receiver latitude")
-	flag.Float64Var(&o.lon, "lon", 34.96, "receiver longitude")
+	cfgPath := flag.String("config", "", "service config to take the receiver position from (-lat/-lon override it)")
+	flag.Float64Var(&o.lat, "lat", 25.07, "receiver latitude")
+	flag.Float64Var(&o.lon, "lon", 22.87, "receiver longitude")
 	flag.IntVar(&o.count, "n", 150, "number of aircraft")
 	flag.Float64Var(&o.modeSOnly, "modes-only", 0.15, "fraction of aircraft without ADS-B (DF4/5/11 only)")
 	flag.Float64Var(&o.duration, "duration", 600, "capture length, seconds")
@@ -205,6 +227,14 @@ func main() {
 	flag.Float64Var(&o.departures, "departures", 0.3, "fraction of aircraft that stop transmitting before the end")
 	flag.Parse()
 	o.step = 0.5
+	if *cfgPath != "" {
+		explicit := map[string]bool{}
+		flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+		if err := applyConfig(&o, *cfgPath, explicit); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
 
 	w := os.Stdout
 	if *out != "-" {
@@ -221,5 +251,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %d frames for %d aircraft over %.0f s\n", n, o.count, o.duration)
+	fmt.Fprintf(os.Stderr, "wrote %d frames for %d aircraft over %.0f s around %.4f, %.4f\n", n, o.count, o.duration, o.lat, o.lon)
 }

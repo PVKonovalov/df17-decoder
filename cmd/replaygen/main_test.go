@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,12 +29,12 @@ func TestEncoders_RoundTrip(t *testing.T) {
 		t.Errorf("identification: %+v", m.Identification)
 	}
 
-	m := decode(t, airbornePosition(icao, 32.1, 34.9, 12000, true))
-	if p := m.AirbornePosition; p == nil || p.Altitude == nil || *p.Altitude != 12000 || p.CPR != modes.EncodeCPR(32.1, 34.9, true) {
+	m := decode(t, airbornePosition(icao, 25.08, 22.81, 12000, true))
+	if p := m.AirbornePosition; p == nil || p.Altitude == nil || *p.Altitude != 12000 || p.CPR != modes.EncodeCPR(25.08, 22.81, true) {
 		t.Errorf("position: %+v", p)
 	}
-	lat, lon := modes.CPRLocal(m.AirbornePosition.CPR, 32, 35)
-	if math.Abs(lat-32.1) > 1e-3 || math.Abs(lon-34.9) > 1e-3 {
+	lat, lon := modes.CPRLocal(m.AirbornePosition.CPR, 25, 23)
+	if math.Abs(lat-25.08) > 1e-3 || math.Abs(lon-22.81) > 1e-3 {
 		t.Errorf("CPR local = %f, %f", lat, lon)
 	}
 
@@ -59,7 +61,7 @@ func TestEncoders_RoundTrip(t *testing.T) {
 }
 
 func TestGenerate(t *testing.T) {
-	o := options{lat: 32.09, lon: 34.96, count: 40, modeSOnly: 0.25, duration: 30, step: 0.5, maxRangeNm: 150, seed: 7, emergencySqk: "7700"}
+	o := options{lat: 25.07, lon: 22.87, count: 40, modeSOnly: 0.25, duration: 30, step: 0.5, maxRangeNm: 150, seed: 7, emergencySqk: "7700"}
 	var buf bytes.Buffer
 	n, err := generate(&buf, o)
 	if err != nil {
@@ -96,8 +98,8 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestMove_StaysInRange(t *testing.T) {
-	o := options{lat: 32.09, lon: 34.96, maxRangeNm: 50, step: 0.5}
-	a := &aircraft{lat: 32.09, lon: 34.96, gs: 450, track: 90, alt: 40000, vr: 3000}
+	o := options{lat: 25.07, lon: 22.87, maxRangeNm: 50, step: 0.5}
+	a := &aircraft{lat: 25.07, lon: 22.87, gs: 450, track: 90, alt: 40000, vr: 3000}
 	for range 7200 { // one hour
 		a.move(o, o.step)
 		dLat := (a.lat - o.lat) * 60
@@ -112,7 +114,7 @@ func TestMove_StaysInRange(t *testing.T) {
 }
 
 func TestGenerate_ArrivalsAndDepartures(t *testing.T) {
-	o := options{lat: 32.09, lon: 34.96, count: 200, modeSOnly: 0.15, duration: 600, step: 0.5, maxRangeNm: 150, seed: 3,
+	o := options{lat: 25.07, lon: 22.87, count: 200, modeSOnly: 0.15, duration: 600, step: 0.5, maxRangeNm: 150, seed: 3,
 		emergencySqk: "7700", arrivals: 0.4, departures: 0.3}
 	var buf bytes.Buffer
 	if _, err := generate(&buf, o); err != nil {
@@ -147,5 +149,32 @@ func TestGenerate_ArrivalsAndDepartures(t *testing.T) {
 	}
 	if len(first) != o.count || atStart < 90 || atStart > 150 || arrived < 50 || departed < 30 {
 		t.Errorf("aircraft %d, at start %d, arrived after 60 s %d, departed 60 s before end %d", len(first), atStart, arrived, departed)
+	}
+}
+
+func TestApplyConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte("receiver:\n  lat: 25.07\n  lon: 22.87\n  maxRangeNm: 100\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	o := options{lat: 25.07, lon: 22.87, maxRangeNm: 150}
+	if err := applyConfig(&o, path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if o.lat != 25.07 || o.lon != 22.87 || o.maxRangeNm != 90 {
+		t.Errorf("from config: %+v", o)
+	}
+
+	o = options{lat: 1, lon: 2, maxRangeNm: 150}
+	if err := applyConfig(&o, path, map[string]bool{"lat": true, "range": true}); err != nil {
+		t.Fatal(err)
+	}
+	if o.lat != 1 || o.lon != 22.87 || o.maxRangeNm != 150 {
+		t.Errorf("explicit flags must win: %+v", o)
+	}
+
+	if err := applyConfig(&o, filepath.Join(t.TempDir(), "missing.yaml"), nil); err == nil {
+		t.Error("missing config: expected error")
 	}
 }

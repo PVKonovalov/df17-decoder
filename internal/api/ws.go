@@ -15,7 +15,7 @@ const (
 	wsReadLimit    = 4096
 )
 
-// wsMessage is one WebSocket text message: Type is "receiver", "aircraft" or "stats".
+// wsMessage is one WebSocket text message: Type is "receiver", "map", "aircraft" or "stats".
 type wsMessage struct {
 	Type string `json:"type"`
 	Data any    `json:"data"`
@@ -30,7 +30,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// ws serves GET /api/ws: "receiver" once, then "aircraft" (sorted by ICAO) and "stats" immediately and every
+// ws serves GET /api/ws: "receiver" and "map" once, then "aircraft" (sorted by ICAO) and "stats" immediately and every
 // StreamInterval, until the client goes away or the server shuts down (close 1001). Client messages are
 // ignored; a client that stops answering pings or reading is dropped.
 func (s *server) ws(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +65,7 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 		return send("stats", s.statsSnapshot())
 	}
 
-	if send("receiver", s.Receiver) != nil || update() != nil {
+	if send("receiver", s.Receiver) != nil || send("map", s.Map) != nil || update() != nil {
 		return
 	}
 	ticker := time.NewTicker(s.StreamInterval)

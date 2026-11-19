@@ -19,7 +19,7 @@ function ac(icao: string, extra: Partial<Aircraft> = {}): Aircraft {
 }
 
 const at = (icao: string, ms: number, lat: number, altBaro?: number) =>
-  ac(icao, { lat, lon: 34.9, posTime: iso(ms), ...(altBaro !== undefined && { altBaro }) })
+  ac(icao, { lat, lon: 22.9, posTime: iso(ms), ...(altBaro !== undefined && { altBaro }) })
 
 const snap = (state: State, ...aircraft: Aircraft[]) => reducer(state, { type: 'snapshot', aircraft })
 
@@ -39,10 +39,10 @@ describe('snapshot', () => {
   })
 
   it('builds trails from new positions only and drops trails of removed aircraft', () => {
-    let s = snap(initialState, at('738001', T0, 32.0, 1000), ac('738002'))
-    s = snap(s, at('738001', T0, 32.0, 1000)) // same posTime: no new point
-    s = snap(s, at('738001', T0 + 1000, 32.1, 1100))
-    expect(s.trails.get('738001')?.map((p) => p.lat)).toEqual([32.0, 32.1])
+    let s = snap(initialState, at('738001', T0, 25.0, 1000), ac('738002'))
+    s = snap(s, at('738001', T0, 25.0, 1000)) // same posTime: no new point
+    s = snap(s, at('738001', T0 + 1000, 25.1, 1100))
+    expect(s.trails.get('738001')?.map((p) => p.lat)).toEqual([25.0, 25.1])
     expect(s.trails.has('738002')).toBe(false)
 
     s = snap(s, ac('738002'))
@@ -97,7 +97,9 @@ describe('selection', () => {
 describe('connection, receiver, stats', () => {
   it('stores the latest values', () => {
     let s = reducer(initialState, { type: 'connection', conn: 'connected' })
-    s = reducer(s, { type: 'receiver', receiver: { lat: 32, lon: 35, maxRangeNm: 300 } })
+    s = reducer(s, { type: 'receiver', receiver: { lat: 25, lon: 23, maxRangeNm: 300 } })
+    s = reducer(s, { type: 'map', map: { tileUrl: 'http://t/{z}/{x}/{y}', attribution: '', maxZoom: 18, darkFilter: true } })
+    expect(s.map?.maxZoom).toBe(18)
     expect(s.conn).toBe('connected')
     expect(s.receiver?.maxRangeNm).toBe(300)
     expect(reducer(s, { type: 'connection', conn: 'connected' })).toBe(s)

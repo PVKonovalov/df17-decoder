@@ -43,8 +43,12 @@ func TestWS_Updates(t *testing.T) {
 	defer c.Close()
 
 	m := readWS(t, c)
-	if m.Type != "receiver" || string(m.Data) != `{"lat":32.09,"lon":34.96,"maxRangeNm":300}` {
+	if m.Type != "receiver" || string(m.Data) != `{"lat":25.07,"lon":22.87,"maxRangeNm":300}` {
 		t.Fatalf("first message = %s %s", m.Type, m.Data)
+	}
+	m = readWS(t, c)
+	if want := `{"tileUrl":"http://tiles.lan/{z}/{x}/{y}.png","attribution":"lan","maxZoom":17,"darkFilter":false}`; m.Type != "map" || string(m.Data) != want {
+		t.Fatalf("second message = %s %s", m.Type, m.Data)
 	}
 	for tick := range 2 {
 		m = readWS(t, c)

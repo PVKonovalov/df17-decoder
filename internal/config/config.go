@@ -39,6 +39,7 @@ type Config struct {
 	Decoder  Decoder  `yaml:"decoder"`
 	Tracker  Tracker  `yaml:"tracker"`
 	API      API      `yaml:"api"`
+	Map      Map      `yaml:"map"`
 	Log      Log      `yaml:"log"`
 }
 
@@ -70,6 +71,14 @@ type API struct {
 	StreamInterval Duration `yaml:"streamInterval"`
 }
 
+// Map configures the web UI's tile layer (any XYZ tile server).
+type Map struct {
+	TileURL     string `yaml:"tileUrl"`
+	Attribution string `yaml:"attribution"`
+	MaxZoom     int    `yaml:"maxZoom"`
+	DarkFilter  bool   `yaml:"darkFilter"`
+}
+
 type Log struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
@@ -89,11 +98,17 @@ func Default() Config {
 			ReconnectMax: Duration(30 * time.Second),
 			ReplaySpeed:  1.0,
 		},
-		Receiver: Receiver{Lat: 32.09, Lon: 34.96, MaxRangeNm: 300},
+		Receiver: Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
 		Decoder:  Decoder{CPRPairMaxAge: Duration(10 * time.Second)},
 		Tracker:  Tracker{TTL: Duration(60 * time.Second), KnownAddressTTL: Duration(60 * time.Second)},
 		API:      API{Listen: ":8080", StreamInterval: Duration(time.Second)},
-		Log:      Log{Level: "info", Format: "text"},
+		Map: Map{
+			TileURL:     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+			Attribution: `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`,
+			MaxZoom:     19,
+			DarkFilter:  true,
+		},
+		Log: Log{Level: "info", Format: "text"},
 	}
 }
 
@@ -162,6 +177,14 @@ func (c Config) Validate() error {
 	_, _, err := net.SplitHostPort(c.API.Listen)
 	check(err == nil, "api.listen must be host:port, got %q", c.API.Listen)
 	check(c.API.StreamInterval > 0, "api.streamInterval must be positive, got %s", c.API.StreamInterval.D())
+
+	if u, err := url.Parse(c.Map.TileURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		errs = append(errs, fmt.Errorf("map.tileUrl must be an http(s) URL, got %q", c.Map.TileURL))
+	}
+	for _, p := range []string{"{z}", "{x}", "{y}"} {
+		check(strings.Contains(c.Map.TileURL, p), "map.tileUrl must contain %s, got %q", p, c.Map.TileURL)
+	}
+	check(c.Map.MaxZoom >= 1 && c.Map.MaxZoom <= 22, "map.maxZoom must be in [1, 22], got %d", c.Map.MaxZoom)
 
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":

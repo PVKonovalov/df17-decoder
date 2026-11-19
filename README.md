@@ -2,7 +2,8 @@
 
 A Mode S / ADS-B decoder written from scratch in Go. It reads raw 1090 MHz frames from
 [dump1090](https://github.com/flightaware/dump1090) and decodes them itself. It does not use dump1090's decoded
-outputs (SBS, JSON) or any third-party ADS-B library. Live aircraft state is served over an HTTP/JSON API.
+outputs (SBS, JSON) or any third-party ADS-B library. Live aircraft state is served over an HTTP/JSON API and a
+WebSocket, and shown in a built-in web UI with a map and a table.
 
 What it decodes:
 
@@ -16,7 +17,9 @@ What it decodes:
   - BDS 2,0 callsign in Comm-B replies.
 - **Input:** AVR text (port 30002), Beast binary with signal level as RSSI (port 30005), or AVR file replay.
 
-It uses only the standard library plus `gopkg.in/yaml.v3`. Requires Go 1.26.
+The backend uses the Go standard library plus `gopkg.in/yaml.v3` and `github.com/gorilla/websocket`, and requires
+Go 1.26. Building the web UI also needs Node 26+ and npm. Without Node the binary still builds and serves a
+placeholder page.
 
 ## Running against dump1090
 
@@ -66,7 +69,8 @@ source:
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
 | `GET /api/stats` | Source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
-| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` once, then `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` and `map` once, then `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/map` | Tile layer for the UI from the `map` config section |
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
@@ -137,10 +141,13 @@ there's nothing else to deploy.
 - **Map** (Leaflet, OpenStreetMap tiles, no API key): the receiver with range rings at 25/50/100 nm, and
   aircraft rotated by track and colored by altitude (legend bottom-left). Labels show callsign and altitude
   in hundreds of feet. Trails cover the last 5 minutes. Aircraft whose position is older than 30 s fade out.
-  The browser loads the tiles from openstreetmap.org, so the map needs internet access.
+  The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
+  unless you use your own tile server (see below).
 - **Table:** every aircraft, including Mode-S-only ones (marked "no pos"). Every column sorts, with unknown
   values last. Emergencies (7500/7600/7700 or an ADS-B emergency state) are red and pinned to the top.
   Filter by callsign, ICAO or squawk, or show only aircraft with a position.
+- **New aircraft:** rows of aircraft first seen in the last 30 s are highlighted in amber, fading out, and
+  their map marker pulses briefly when it appears.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
   known field, and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
@@ -148,6 +155,41 @@ there's nothing else to deploy.
   page reconnects with backoff by itself.
 - Light and dark themes follow the OS setting. On narrow screens the map sits above the table; on wide
   screens a splitter between them can be dragged.
+
+### Own tile server
+
+Set the `map` section of the config to any XYZ tile server, for example a self-hosted one on your LAN. The map
+then works without internet access:
+
+```yaml
+map:
+  tileUrl: http://tiles.lan:8080/styles/basic/{z}/{x}/{y}.png   # must contain {z}, {x}, {y}; {s} optional
+  attribution: '&copy; OpenStreetMap contributors'
+  maxZoom: 18
+  darkFilter: false   # true inverts the tiles in dark mode; turn off if your style is already dark
+```
+
+The URL must be reachable from the browser, not just from the server. Changing it needs only a restart, not a
+rebuild.
+
+Tips for a self-hosted server:
+
+- **The URL format depends on the server.** Typical forms are:
+
+  | Server | `tileUrl` |
+  |---|---|
+  | [openstreetmap-tile-server](https://github.com/Overv/openstreetmap-tile-server) (Docker) | `http://<host>:8080/tile/{z}/{x}/{y}.png` |
+  | [TileServer GL](https://github.com/maptiler/tileserver-gl) | `http://<host>:8080/styles/<style>/{z}/{x}/{y}.png` |
+
+  Open a single tile such as `.../0/0/0.png` in the browser first to confirm the format.
+- **No CORS setup is needed.** Leaflet loads tiles as plain images.
+- **Don't mix HTTP and HTTPS.** If the UI is served over HTTPS, the tile server must use HTTPS too, or the
+  browser blocks the tiles as mixed content.
+- **Match `maxZoom` to what the server renders.** If it only has tiles up to zoom 16, set `maxZoom: 16`;
+  otherwise zooming further shows blank tiles.
+- **`darkFilter`:** keep it `true` for a standard light OSM style, and set it to `false` for a dark style.
+- **When tiles don't appear,** check the tile requests in the browser's network tab for the URL and status
+  code.
 
 ### Building
 
@@ -158,7 +200,7 @@ make run          # build and run with config/config.yaml
 
 Without Node, `go build ./...` still works and serves a placeholder page instead of the UI.
 
-### Development
+### UI development
 
 ```sh
 go run ./cmd/df17-decoder -config config/config.yaml    # backend on :8080
@@ -173,12 +215,16 @@ ESLint and `tsc`.
 
 ```sh
 make demo         # generates testdata/busy.txt (150 aircraft over 10 min) and replays it in real time
+make busy         # only regenerates testdata/busy.txt
 ```
 
-`cmd/replaygen` writes the synthetic capture. By default 40% of the aircraft arrive during the replay (airliners
-enter at the edge of coverage), so new rows keep appearing, and 30% stop transmitting early and then expire. Its
-flags set these shares, the aircraft count, the share of Mode-S-only aircraft, the duration, the range and the
-receiver position (`go run ./cmd/replaygen -h`).
+`make demo` serves on port 8080 (`config/demo.yaml`). Stop any other instance first, or change `api.listen` there.
+
+`cmd/replaygen` writes the synthetic capture around the receiver in `config/demo.yaml` (`-config`). By default
+40% of the aircraft arrive during the replay, with airliners entering at the edge of coverage, so new rows keep
+appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only, and one squawks 7700.
+Flags such as `-n`, `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon`
+change this (`go run ./cmd/replaygen -h`).
 
 ## Architecture
 

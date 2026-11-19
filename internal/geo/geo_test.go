@@ -13,9 +13,9 @@ func TestDistanceAndBearing(t *testing.T) {
 	}{
 		{"one degree of latitude", Point{0, 0}, Point{1, 0}, 60.04, 0},
 		{"one degree east at equator", Point{0, 0}, Point{0, 1}, 60.04, 90},
-		{"south", Point{32, 35}, Point{31, 35}, 60.04, 180},
-		{"receiver to LLBG", Point{32.09, 34.96}, Point{32.0114, 34.8867}, 6.01, 218.3},
-		{"same point", Point{32, 35}, Point{32, 35}, 0, 0},
+		{"south", Point{25, 23}, Point{24, 23}, 60.04, 180},
+		{"receiver to a point 6 NM south-west", Point{25.07, 22.87}, Point{24.9914, 22.7967}, 6.18, 220.2},
+		{"same point", Point{25, 23}, Point{25, 23}, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

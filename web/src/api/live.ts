@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch } from 'react'
 import type { Action } from '../state/reducer'
-import type { Aircraft, Receiver, Stats } from './types'
+import type { Aircraft, MapConfig, Receiver, Stats } from './types'
 
 export const RECONNECT_MIN_MS = 1000
 export const RECONNECT_MAX_MS = 30_000
@@ -39,6 +39,10 @@ export function toAction(raw: unknown): Action | null {
       return Array.isArray(data) ? { type: 'snapshot', aircraft: data as Aircraft[] } : null
     case 'receiver':
       return isObject(data) ? { type: 'receiver', receiver: data as unknown as Receiver } : null
+    case 'map':
+      return isObject(data) && typeof data.tileUrl === 'string'
+        ? { type: 'map', map: data as unknown as MapConfig }
+        : null
     case 'stats':
       return isObject(data) ? { type: 'stats', stats: data as unknown as Stats } : null
     default:

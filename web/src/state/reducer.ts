@@ -1,4 +1,4 @@
-import type { Aircraft, Receiver, Stats } from '../api/types'
+import type { Aircraft, MapConfig, Receiver, Stats } from '../api/types'
 
 export const TRAIL_MAX_AGE_MS = 5 * 60 * 1000
 export const TRAIL_MAX_POINTS = 1000
@@ -15,6 +15,7 @@ export interface TrailPoint {
 export interface State {
   conn: ConnState
   receiver: Receiver | null
+  map: MapConfig | null
   stats: Stats | null
   aircraft: ReadonlyMap<string, Aircraft> // keyed by ICAO, in server order (sorted by ICAO)
   trails: ReadonlyMap<string, readonly TrailPoint[]>
@@ -25,6 +26,7 @@ export interface State {
 export type Action =
   | { type: 'connection'; conn: ConnState }
   | { type: 'receiver'; receiver: Receiver }
+  | { type: 'map'; map: MapConfig }
   | { type: 'stats'; stats: Stats }
   | { type: 'snapshot'; aircraft: Aircraft[] }
   | { type: 'select'; icao: string; pan?: boolean }
@@ -33,6 +35,7 @@ export type Action =
 export const initialState: State = {
   conn: 'connecting',
   receiver: null,
+  map: null,
   stats: null,
   aircraft: new Map(),
   trails: new Map(),
@@ -46,6 +49,8 @@ export function reducer(state: State, action: Action): State {
       return state.conn === action.conn ? state : { ...state, conn: action.conn }
     case 'receiver':
       return { ...state, receiver: action.receiver }
+    case 'map':
+      return { ...state, map: action.map }
     case 'stats':
       return { ...state, stats: action.stats }
     case 'snapshot':

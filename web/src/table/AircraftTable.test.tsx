@@ -17,10 +17,10 @@ const ac = (icao: string, extra: Partial<Aircraft> = {}): Aircraft => ({
 
 const fleet = new Map(
   [
-    ac('738001', { callsign: 'ELY001', lat: 32, lon: 35, distanceNm: 12.3, altBaro: 0, verticalRate: -640 }),
-    ac('738002', { callsign: 'ISR22', lat: 32.1, lon: 35, distanceNm: 4.5, altBaro: 3500 }),
+    ac('738001', { callsign: 'ELY001', lat: 25, lon: 23, distanceNm: 12.3, altBaro: 0, verticalRate: -640 }),
+    ac('738002', { callsign: 'ISR22', lat: 25.1, lon: 23, distanceNm: 4.5, altBaro: 3500 }),
     ac('738003', { squawk: '1200', altBaro: 2500 }),
-    ac('4CA001', { squawk: '7700', lat: 31, lon: 34, distanceNm: 80 }),
+    ac('4CA001', { squawk: '7700', lat: 24, lon: 22, distanceNm: 80 }),
   ].map((a) => [a.icao, a]),
 )
 

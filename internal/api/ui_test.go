@@ -19,7 +19,7 @@ import (
 
 func uiHandler(ui fs.FS) http.Handler {
 	return New(Deps{
-		Receiver: Receiver{Lat: 32.09, Lon: 34.96, MaxRangeNm: 300},
+		Receiver: Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
 		UI:       ui,
 	})
 }
@@ -35,8 +35,17 @@ func TestReceiver(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("code %d, content type %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
-	if got, want := strings.TrimSpace(rec.Body.String()), `{"lat":32.09,"lon":34.96,"maxRangeNm":300}`; got != want {
+	if got, want := strings.TrimSpace(rec.Body.String()), `{"lat":25.07,"lon":22.87,"maxRangeNm":300}`; got != want {
 		t.Errorf("body = %s, want %s", got, want)
+	}
+}
+
+func TestMapConfig(t *testing.T) {
+	h := New(Deps{Map: MapConfig{TileURL: "https://t.lan/{z}/{x}/{y}.png", Attribution: "© me", MaxZoom: 18, DarkFilter: true}})
+	rec := serve(h, http.MethodGet, "/api/map")
+	want := `{"tileUrl":"https://t.lan/{z}/{x}/{y}.png","attribution":"© me","maxZoom":18,"darkFilter":true}`
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != want {
+		t.Errorf("code %d body %s", rec.Code, rec.Body.String())
 	}
 }
 

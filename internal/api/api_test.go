@@ -35,7 +35,7 @@ func newFixture(t *testing.T) *fixture {
 		TTL:             time.Minute,
 		KnownAddressTTL: time.Minute,
 		Resolver: tracker.PositionResolver{
-			Receiver: geo.Point{Lat: 32.09, Lon: 34.96}, MaxRangeNm: 300,
+			Receiver: geo.Point{Lat: 25.07, Lon: 22.87}, MaxRangeNm: 300,
 			PairMaxAge: 10 * time.Second, RefMaxAge: time.Minute,
 		},
 		Stats: st,
@@ -48,8 +48,8 @@ func newFixture(t *testing.T) *fixture {
 			}}, nil)
 		}
 	}
-	pos(0x738002, now.Add(-2*time.Second), 31.42, 34.96, 12000)
-	pos(0x738001, now, 32.2567, 34.96, 0)
+	pos(0x738002, now.Add(-2*time.Second), 24.40, 22.87, 12000)
+	pos(0x738001, now, 25.2367, 22.87, 0)
 	tr.Update(modes.Message{DF: 11, ICAO: 0x738003, Time: now, AllCall: &modes.AllCall{Capability: 5}}, nil)
 	tr.Update(modes.Message{DF: 4, ICAO: 0x738003, Time: now, AddressParity: true, Surveillance: &modes.Surveillance{Altitude: new(3000)}}, nil)
 	st.AddFrame(17)
@@ -57,7 +57,8 @@ func newFixture(t *testing.T) *fixture {
 
 	f := &fixture{stats: st}
 	f.handler = New(Deps{
-		Receiver:       Receiver{Lat: 32.09, Lon: 34.96, MaxRangeNm: 300},
+		Receiver:       Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
+		Map:            MapConfig{TileURL: "http://tiles.lan/{z}/{x}/{y}.png", Attribution: "lan", MaxZoom: 17},
 		Tracker:        tr,
 		Stats:          st,
 		Source:         func() source.StatsSnapshot { return f.src },

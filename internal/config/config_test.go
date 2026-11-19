@@ -84,6 +84,9 @@ func TestLoad_Errors(t *testing.T) {
 		{"tcp without port", "source:\n  url: tcp://localhost\n", []string{"host:port"}},
 		{"bad log level", "log:\n  level: verbose\n", []string{"log.level"}},
 		{"all errors reported", "receiver:\n  lat: 100\n  lon: 200\n", []string{"receiver.lat", "receiver.lon"}},
+		{"tile url not http", "map:\n  tileUrl: ftp://t/{z}/{x}/{y}.png\n", []string{"map.tileUrl must be an http(s) URL"}},
+		{"tile url without placeholders", "map:\n  tileUrl: https://t.lan/tiles.png\n", []string{"{z}", "{x}", "{y}"}},
+		{"max zoom out of range", "map:\n  maxZoom: 30\n", []string{"map.maxZoom"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

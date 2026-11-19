@@ -79,7 +79,7 @@ func TestCPRLocal_Vector(t *testing.T) {
 }
 
 func TestCPR_EncodeDecodeRoundTrip(t *testing.T) {
-	points := [][2]float64{{32.09, 34.96}, {31.9, 35.3}, {-33.9, 151.2}, {64.1, -21.9}, {0.5, -0.5}, {52.2572, 3.9194}}
+	points := [][2]float64{{25.07, 22.87}, {24.88, 23.21}, {-33.9, 151.2}, {64.1, -21.9}, {0.5, -0.5}, {52.2572, 3.9194}}
 	for _, p := range points {
 		t.Run(fmt.Sprint(p), func(t *testing.T) {
 			even, odd := EncodeCPR(p[0], p[1], false), EncodeCPR(p[0], p[1], true)

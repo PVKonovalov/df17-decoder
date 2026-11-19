@@ -8,26 +8,33 @@ import { ALT_MAX_FT, altitudeColor, destinationNorth } from './style'
 
 const NM_TO_M = 1852
 const RING_NM = [25, 50, 100] as const
-const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
 interface Props {
   state: State
   dispatch: Dispatch<Action>
 }
 
-/** LiveMap shows the receiver with range rings and all aircraft with a position, once the receiver is known. */
+/**
+ * LiveMap shows the receiver with range rings and all aircraft with a position, once the receiver and the
+ * tile layer (the map section of the service config) are known.
+ */
 export function LiveMap({ state, dispatch }: Props) {
-  const { receiver } = state
-  if (receiver === null) {
+  const { receiver, map: tiles } = state
+  if (receiver === null || tiles === null) {
     return <div className="map-wait">Waiting for receiver position…</div>
   }
   const center: [number, number] = [receiver.lat, receiver.lon]
 
   return (
     <div className="map-wrap">
-      <MapContainer center={center} zoom={9} className="map" worldCopyJump>
-        <TileLayer url={OSM_TILES} attribution={OSM_ATTRIBUTION} maxZoom={19} className="tiles" />
+      <MapContainer center={center} zoom={9} maxZoom={tiles.maxZoom} className="map" worldCopyJump>
+        <TileLayer
+          key={tiles.tileUrl}
+          url={tiles.tileUrl}
+          attribution={tiles.attribution}
+          maxZoom={tiles.maxZoom}
+          className={tiles.darkFilter ? 'tiles tiles-dark-filter' : 'tiles'}
+        />
         <RangeRings lat={receiver.lat} lon={receiver.lon} />
         <CircleMarker
           center={center}

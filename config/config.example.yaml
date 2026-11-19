@@ -17,8 +17,8 @@ source:
 
 receiver:
   # Receiver position, decimal degrees. Reference for local CPR decoding and distance/bearing.
-  lat: 32.09
-  lon: 34.96
+  lat: 25.07
+  lon: 22.87
   # Positions farther than this from the receiver are rejected as bogus.
   maxRangeNm: 300
 
@@ -39,6 +39,16 @@ api:
   listen: ":8080"
   # Interval between snapshots pushed on /api/stream.
   streamInterval: 1s
+
+map:
+  # Web UI map tiles: any XYZ tile server, e.g. a self-hosted one on your LAN (then the map works offline).
+  # {s} (subdomain) is also supported. The browser loads the tiles, so the URL must be reachable from it.
+  tileUrl: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+  # Shown in the map corner; most tile providers require it. HTML is allowed.
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  maxZoom: 19
+  # Invert the tiles in dark mode (OSM has no dark style). Set false if your tiles are already dark.
+  darkFilter: true
 
 log:
   level: info    # debug|info|warn|error

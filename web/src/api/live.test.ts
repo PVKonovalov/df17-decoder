@@ -23,10 +23,12 @@ describe('toAction', () => {
       receiver: { lat: 1, lon: 2, maxRangeNm: 3 },
     })
     expect(toAction('{"type":"stats","data":{"frames":1}}')?.type).toBe('stats')
+    const map = { tileUrl: 'http://t.lan/{z}/{x}/{y}.png', attribution: 'lan', maxZoom: 17, darkFilter: false }
+    expect(toAction(JSON.stringify({ type: 'map', data: map }))).toEqual({ type: 'map', map })
   })
 
   it('ignores unknown, malformed and binary messages', () => {
-    for (const raw of ['{"type":"future","data":{}}', '{"type":"aircraft","data":{}}', 'not json', '42', null]) {
+    for (const raw of ['{"type":"future","data":{}}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', 'not json', '42', null]) {
       expect(toAction(raw)).toBeNull()
     }
     expect(toAction(new ArrayBuffer(2))).toBeNull()

@@ -3,6 +3,7 @@ import { useEffect, useRef, type Dispatch } from 'react'
 import { useMap } from 'react-leaflet'
 import type { Aircraft } from '../api/types'
 import type { Action, TrailPoint } from '../state/reducer'
+import { newAgeMs } from '../table/rows'
 import { aircraftAltitude, altitudeColor, dataNow, isStale, markerLabel, rotation, trailSegments } from './style'
 
 const PLANE_SVG =
@@ -72,6 +73,9 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch }: Props) {
           dispatch({ type: 'select', icao })
         })
         all.set(a.icao, e)
+        if (newAgeMs(a, now) !== undefined) {
+          e.root.classList.add('pulse') // same "new" rule as the table row highlight
+        }
       }
 
       const stale = isStale(a, now)

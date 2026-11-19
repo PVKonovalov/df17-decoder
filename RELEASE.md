@@ -16,3 +16,9 @@
 - 2026-11-19: UI — newly seen aircraft rows are highlighted green, fading out over 10 s (from backend firstSeen, data time).
 - 2026-11-19: replaygen — aircraft arrive during the capture (at the coverage edge) and some stop early, so the demo shows new and expiring rows.
 - 2026-11-19: UI — new-aircraft row highlight changed to red, fading out over 30 s.
+- 2026-11-19: UI — new rows amber instead of red; new aircraft markers pulse. replaygen -config takes the receiver from a config (make busy uses demo.yaml).
+- 2026-11-19: Configurable map tiles: map.tileUrl/attribution/maxZoom/darkFilter in YAML, served via /api/map and the ws map message.
+- 2026-11-19: README — self-hosted tile server tips: URL formats (openstreetmap-tile-server, TileServer GL), CORS, mixed content, maxZoom, darkFilter.
+- 2026-11-19: README refreshed: dependencies and Node requirement, new-aircraft highlight, demo port and replaygen flags, heading fixes.
+- 2026-11-19: CLAUDE.md refreshed: project scope, configurable tiles, approved deps (gin optional), npm commands, web/src notes split and corrected.
+- 2026-11-19: Privacy — receiver location removed from defaults, example config, replaygen, docs and tests (neutral 25.07, 22.87).

@@ -115,6 +115,10 @@ func (s *Service) Run(ctx context.Context) error {
 			Receiver: api.Receiver{
 				Lat: s.cfg.Receiver.Lat, Lon: s.cfg.Receiver.Lon, MaxRangeNm: s.cfg.Receiver.MaxRangeNm,
 			},
+			Map: api.MapConfig{
+				TileURL: s.cfg.Map.TileURL, Attribution: s.cfg.Map.Attribution,
+				MaxZoom: s.cfg.Map.MaxZoom, DarkFilter: s.cfg.Map.DarkFilter,
+			},
 			UI:             web.Dist(),
 			Tracker:        s.Tracker,
 			Stats:          s.Stats,
