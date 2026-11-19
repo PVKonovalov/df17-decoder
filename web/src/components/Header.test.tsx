@@ -27,15 +27,16 @@ const stats: Stats = {
 }
 
 describe('Header', () => {
-  it('shows the server version on hover of the title', () => {
+  it('shows the server version next to the title', () => {
     render(<Header state={{ ...initialState, stats }} />)
-    expect(screen.getByRole('heading', { name: 'df17-decoder' }).getAttribute('title')).toBe('version v1.0.0')
+    expect(screen.getByRole('heading', { name: 'df17-decoder' })).toBeTruthy()
+    expect(screen.getByTitle('Server version').textContent).toBe('v1.0.0')
     expect(screen.getByText('2.5')).toBeTruthy()
   })
 
   it('has no version before the first stats message', () => {
     render(<Header state={initialState} />)
-    expect(screen.getByRole('heading', { name: 'df17-decoder' }).hasAttribute('title')).toBe(false)
+    expect(screen.queryByTitle('Server version')).toBeNull()
   })
 })
 

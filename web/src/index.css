@@ -78,6 +78,18 @@ body {
   font-weight: 600;
 }
 
+.header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.header-version {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .header-stats {
   display: flex;
   flex-wrap: wrap;

@@ -16,7 +16,7 @@ export interface PanelToggles {
 }
 
 /**
- * Header shows aircraft counts, message rate, receiver source status and the /api/ws connection state, and the
+ * Header shows the title with the server version, aircraft counts, message rate, receiver source status and the /api/ws connection state, and the
  * switches that show or hide the aircraft table and the map legend.
  */
 export function Header({ state, panels }: { state: State; panels?: PanelToggles }) {
@@ -31,9 +31,14 @@ export function Header({ state, panels }: { state: State; panels?: PanelToggles 
 
   return (
     <header className="header">
-      <h1 className="header-title" title={stats ? `version ${stats.version}` : undefined}>
-        df17-decoder
-      </h1>
+      <div className="header-brand">
+        <h1 className="header-title">df17-decoder</h1>
+        {stats && (
+          <span className="header-version" title="Server version">
+            {stats.version}
+          </span>
+        )}
+      </div>
       <dl className="header-stats">
         <div>
           <dt>Aircraft</dt>
