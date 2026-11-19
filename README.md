@@ -31,8 +31,8 @@ cp config/config.example.yaml config/config.yaml
 source:
   url: beast://192.168.1.50:30005   # or tcp://192.168.1.50:30002 for AVR
 receiver:
-  lat: 32.09
-  lon: 34.96
+  lat: 20.19
+  lon: 11.89
 ```
 
 ```sh
@@ -66,9 +66,12 @@ source:
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
 | `GET /api/stats` | Source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
+| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` once, then `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
-Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
+Every other path serves the web UI embedded in the binary (`make build` builds it first; without Node a
+placeholder page is served). Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
 
 Sample output from a replay of the synthetic `testdata/capture.txt`:
 
