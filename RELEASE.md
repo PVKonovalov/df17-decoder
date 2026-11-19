@@ -30,3 +30,4 @@
 - 2026-11-19: Default source is now beast://localhost:30005 (signal levels); config example lists Beast first.
 - 2026-11-19: Coverage outline: furthest position per 2° bearing, /api/coverage + ws, map toggle with hover range; persisted to coverage.file (systemd/Docker state dir).
 - 2026-11-19: Coverage heatmap: legend Off/Outline/Signal/Count switch, 2°×5 NM wedges by avg dBFS or position count per altitude band, hover cell stats.
+- 2026-11-19: Full ICAO country table: 194 state blocks from Annex 10 Table 9-1 plus UK territories and Hong Kong; binary-search lookup.

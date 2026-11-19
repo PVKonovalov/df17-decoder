@@ -2,11 +2,6 @@
 
 Candidate improvements, roughly by value. Move items to RELEASE.md when done.
 
-## Data quality
-
-- [ ] **Full ICAO country table:** about 200 allocations from ICAO Annex 10 Vol III; `internal/tracker/country.go`
-      has 41.
-
 ## Web UI
 
 - [ ] **Shareable links:** `/?icao=738ABC` selects the aircraft on load; filters are kept in the URL.

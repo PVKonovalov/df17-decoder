@@ -203,16 +203,34 @@ func TestCountry(t *testing.T) {
 	tests := map[uint32]string{
 		0x738000: "Israel", 0x73FFFF: "Israel", 0x738062: "Israel", 0x740000: "Jordan", 0x744828: "Jordan",
 		0x155C06: "Russia", 0x471F65: "Hungary", 0x896539: "United Arab Emirates", 0x4840D6: "Netherlands",
-		0xA05F21: "United States", 0x3C6589: "Germany", 0x000001: "",
+		0xA05F21: "United States", 0x3C6589: "Germany", 0x498000: "Czech Republic",
+		0x840000: "Japan", 0x87FFFF: "Japan", 0x780000: "China", 0x7BFFFF: "China", 0xE40000: "Brazil",
+		0xE7FFFF: "Brazil", 0x7C0000: "Australia", 0x800000: "India", 0x83FFFF: "India", 0xC00000: "Canada",
+		0x004000: "Zimbabwe", 0xC97000: "Tuvalu", 0x899000: "Taiwan",
+		// territories inside a state's block, and the state around them
+		0x789000: "Hong Kong", 0x789FFF: "Hong Kong", 0x788FFF: "China", 0x78A000: "China",
+		0x400000: "Bermuda", 0x4001C0: "Cayman Islands", 0x400200: "United Kingdom", 0x43EAFE: "Guernsey",
+		// unallocated, and ICAO's own blocks
+		0x000001: "", 0x003FFF: "", 0x200000: "", 0x900800: "", 0xB00000: "", 0xF00000: "", 0xFFFFFF: "",
 	}
 	for icao, want := range tests {
 		if got := Country(icao); got != want {
 			t.Errorf("Country(%06X) = %q, want %q", icao, got, want)
 		}
 	}
-	for i, b := range countryBlocks {
-		if b.from > b.to || i > 0 && b.from <= countryBlocks[i-1].to {
-			t.Errorf("block %d (%s) is inverted or overlaps the previous one", i, b.country)
+	if len(countryBlocks) < 190 {
+		t.Errorf("%d country blocks, want the full table", len(countryBlocks))
+	}
+	for _, tbl := range [][]countryBlock{countryBlocks, countrySubBlocks} {
+		for i, b := range tbl {
+			if b.from > b.to || i > 0 && b.from <= tbl[i-1].to {
+				t.Errorf("block %06X (%s) is inverted, unsorted or overlaps the previous one", b.from, b.country)
+			}
+		}
+	}
+	for _, b := range countrySubBlocks {
+		if parent := lookupBlock(countryBlocks, b.from); parent == "" || parent != lookupBlock(countryBlocks, b.to) {
+			t.Errorf("sub-block %06X (%s) is not inside one state's block", b.from, b.country)
 		}
 	}
 }
