@@ -1,0 +1,9 @@
+# Demo without a radio: replays the synthetic capture from `make busy` in real time (`make demo`).
+source:
+  url: file://testdata/busy.txt
+  replaySpeed: 1.0
+receiver:
+  lat: 32.09
+  lon: 34.96
+api:
+  listen: ":8080"

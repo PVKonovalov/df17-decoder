@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Aircraft } from '../api/types'
-import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, visibleRows, type Filter } from './rows'
+import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, newAgeMs, NEW_ROW_MS, visibleRows, type Filter } from './rows'
 
 const NOW = Date.parse('2026-11-19T10:00:30Z')
 const ac = (icao: string, extra: Partial<Aircraft> = {}): Aircraft => ({
@@ -94,6 +94,15 @@ describe('helpers', () => {
     expect(isEmergency(ac('A', { squawk: '7000' }))).toBe(false)
     expect(isEmergency(ac('A', { emergency: 'none' }))).toBe(false)
     expect(isEmergency(ac('A', { emergency: 'general' }))).toBe(true)
+  })
+
+  it('marks aircraft first seen less than NEW_ROW_MS ago as new', () => {
+    const first = (ms: number) => ac('A', { firstSeen: new Date(NOW - ms).toISOString() })
+    expect(newAgeMs(first(0), NOW)).toBe(0)
+    expect(newAgeMs(first(4000), NOW)).toBe(4000)
+    expect(newAgeMs(first(NEW_ROW_MS - 1), NOW)).toBe(NEW_ROW_MS - 1)
+    expect(newAgeMs(first(NEW_ROW_MS), NOW)).toBeUndefined()
+    expect(newAgeMs(first(-2000), NOW)).toBe(0) // first seen "after" now: clamp
   })
 
   it('formats ages and vertical rates', () => {

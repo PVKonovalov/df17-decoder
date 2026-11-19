@@ -15,6 +15,7 @@
   --sel-bg: rgba(42, 125, 225, 0.12);
   --bad-bg: rgba(207, 34, 46, 0.08);
   --link: #0969da;
+  --new-bg: rgba(207, 34, 46, 0.22);
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
@@ -40,6 +41,7 @@
     --sel-bg: rgba(88, 166, 255, 0.15);
     --bad-bg: rgba(248, 81, 73, 0.12);
     --link: #58a6ff;
+    --new-bg: rgba(248, 81, 73, 0.3);
   }
 }
 
@@ -263,6 +265,20 @@ body {
 
 .ac-table tbody tr:hover {
   background: var(--hover);
+}
+
+/* New aircraft: fades from red over NEW_ROW_MS (rows.ts, keep in sync); emergency and selected styles win. */
+.ac-table tr.new:not(.emergency):not(.selected) {
+  animation: new-row 30s ease-in;
+}
+
+@keyframes new-row {
+  from {
+    background: var(--new-bg);
+  }
+  to {
+    background: transparent;
+  }
 }
 
 .ac-table tr.nopos {

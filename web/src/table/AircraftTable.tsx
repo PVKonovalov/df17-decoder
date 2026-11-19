@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type D
 import type { Aircraft } from '../api/types'
 import { aircraftAltitude, dataNow } from '../map/style'
 import type { Action } from '../state/reducer'
-import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, visibleRows, type ColumnId, type Filter } from './rows'
+import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, newAgeMs, visibleRows, type ColumnId, type Filter } from './rows'
 
 const features = tableFeatures({ rowSortingFeature })
 const helper = createColumnHelper<typeof features, Aircraft>()
@@ -64,13 +64,22 @@ const columnsWithoutRssi = allColumns.filter((c) => c.id !== 'rssi')
 
 const TEXT_COLUMNS = new Set<string>(['icao', 'callsign', 'squawk', 'country'])
 
-/** useDataNow returns the newest data time in the table plus the wall time since that snapshot, every second. */
+/**
+ * useDataNow returns the newest data time in the table plus the wall time since that snapshot. Snapshots
+ * re-render every second anyway; the timer only ticks when they stop arriving.
+ */
 function useDataNow(aircraft: ReadonlyMap<string, Aircraft>): number {
   const [, setTick] = useState(0)
   const base = useMemo(() => ({ data: dataNow(aircraft.values()), wall: Date.now() }), [aircraft])
+  const lastWall = useRef(base.wall)
+  useEffect(() => {
+    lastWall.current = base.wall
+  }, [base])
   useEffect(() => {
     const id = setInterval(() => {
-      setTick((t) => t + 1)
+      if (Date.now() - lastWall.current >= 1000) {
+        setTick((t) => t + 1)
+      }
     }, 1000)
     return () => {
       clearInterval(id)
@@ -168,7 +177,9 @@ export function AircraftTable({ aircraft, selected, dispatch }: Props) {
             <tbody ref={bodyRef}>
               {table.getRowModel().rows.map((row) => {
                 const a = row.original
+                const newAge = now === 0 ? undefined : newAgeMs(a, now)
                 const cls = [
+                  newAge === undefined ? '' : 'new',
                   a.hasPosition ? '' : 'nopos',
                   isEmergency(a) ? 'emergency' : '',
                   a.icao === selected ? 'selected' : '',
@@ -180,6 +191,8 @@ export function AircraftTable({ aircraft, selected, dispatch }: Props) {
                     key={row.id}
                     data-icao={a.icao}
                     className={cls}
+                    // the fade starts at the row's real age, so a page load mid-way doesn't restart it
+                    style={newAge === undefined ? undefined : { animationDelay: `-${newAge}ms` }}
                     aria-selected={a.icao === selected}
                     onClick={() => {
                       dispatch({ type: 'select', icao: a.icao, pan: a.hasPosition })

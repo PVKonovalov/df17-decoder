@@ -12,3 +12,7 @@
 - 2026-11-19: UI M2 — Vite/React/TS scaffold in web/, /api/ws client with reconnect backoff, state reducer with trails, header with counts/rates/status, Vitest contract test.
 - 2026-11-19: UI M3 — Leaflet/OSM map: receiver, 25/50/100 nm rings, rotated altitude-colored markers updated in place, labels, legend, colored trails, stale fading.
 - 2026-11-19: UI M4 — Sortable/filterable aircraft table (TanStack v9), Mode-S-only rows, pinned emergencies, map/table selection sync, detail panel, resizable split layout.
+- 2026-11-19: UI M5 — cmd/replaygen busy capture + make demo, fewer table re-renders, cheaper trail redraws, README Web UI section.
+- 2026-11-19: UI — newly seen aircraft rows are highlighted green, fading out over 10 s (from backend firstSeen, data time).
+- 2026-11-19: replaygen — aircraft arrive during the capture (at the coverage edge) and some stop early, so the demo shows new and expiring rows.
+- 2026-11-19: UI — new-aircraft row highlight changed to red, fading out over 30 s.

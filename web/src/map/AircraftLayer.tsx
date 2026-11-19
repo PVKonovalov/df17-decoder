@@ -16,6 +16,8 @@ interface Entry {
   trail: L.LayerGroup
   trailData: readonly TrailPoint[] | undefined
   trailStyle: string // stale/selected flags the trail was drawn with
+  color: string
+  rotation: number
 }
 
 interface Props {
@@ -78,15 +80,25 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch }: Props) {
       if (latlng.lat !== a.lat || latlng.lng !== a.lon) {
         e.marker.setLatLng([a.lat, a.lon])
       }
-      e.plane.style.color = altitudeColor(aircraftAltitude(a), a.onGround === true)
-      e.plane.style.transform = `rotate(${rotation(a)}deg)`
+      const color = altitudeColor(aircraftAltitude(a), a.onGround === true)
+      if (e.color !== color) {
+        e.plane.style.color = color
+        e.color = color
+      }
+      const deg = rotation(a)
+      if (e.rotation !== deg) {
+        e.plane.style.transform = `rotate(${deg}deg)`
+        e.rotation = deg
+      }
       const text = markerLabel(a)
       if (e.label.textContent !== text) {
         e.label.textContent = text
       }
       e.root.classList.toggle('stale', stale)
-      e.root.classList.toggle('selected', isSelected)
-      e.marker.setZIndexOffset(isSelected ? 1000 : 0)
+      if (e.root.classList.contains('selected') !== isSelected) {
+        e.root.classList.toggle('selected', isSelected)
+        e.marker.setZIndexOffset(isSelected ? 1000 : 0)
+      }
 
       const trail = trails.get(a.icao)
       const trailStyle = `${String(stale)}/${String(isSelected)}`
@@ -121,7 +133,7 @@ function createEntry(map: L.Map, a: Aircraft, onSelect: (icao: string) => void):
     throw new Error('aircraft marker element missing')
   }
   const trail = L.layerGroup().addTo(map)
-  return { marker, root, plane, label, trail, trailData: undefined, trailStyle: '' }
+  return { marker, root, plane, label, trail, trailData: undefined, trailStyle: '', color: '', rotation: NaN }
 }
 
 function drawTrail(

@@ -3,7 +3,7 @@ CONFIG ?= config/config.yaml
 # npm steps run only once the UI is scaffolded (web/package.json exists).
 HAS_UI := $(wildcard web/package.json)
 
-.PHONY: web build test lint run
+.PHONY: web build test lint run busy demo
 
 web:
 ifneq ($(HAS_UI),)
@@ -30,3 +30,10 @@ endif
 
 run: build
 	./$(BIN) -config $(CONFIG)
+
+# Synthetic 10-minute capture with 150 moving aircraft (Mode-S-only and one 7700 included).
+busy:
+	go run ./cmd/replaygen -o testdata/busy.txt
+
+demo: build busy
+	./$(BIN) -config config/demo.yaml

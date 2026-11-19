@@ -35,6 +35,14 @@ export function isEmergency(a: Aircraft): boolean {
   return (a.squawk !== undefined && EMERGENCY_SQUAWKS.has(a.squawk)) || (a.emergency !== undefined && a.emergency !== 'none')
 }
 
+export const NEW_ROW_MS = 30_000
+
+/** newAgeMs returns how long ago (ms, data time) the aircraft was first seen while that is under NEW_ROW_MS, else undefined. */
+export function newAgeMs(a: Aircraft, now: number): number | undefined {
+  const age = Math.max(0, now - Date.parse(a.firstSeen))
+  return age < NEW_ROW_MS ? age : undefined
+}
+
 /** ageSeconds is how long ago the aircraft was last heard at data time now (ms). */
 export function ageSeconds(a: Aircraft, now: number): number {
   return Math.max(0, Math.round((now - Date.parse(a.lastSeen)) / 1000))

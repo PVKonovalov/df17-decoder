@@ -6,7 +6,7 @@ import { AircraftTable } from './AircraftTable'
 
 const ac = (icao: string, extra: Partial<Aircraft> = {}): Aircraft => ({
   icao,
-  firstSeen: '2026-11-19T10:00:00Z',
+  firstSeen: '2026-11-19T09:59:00Z',
   lastSeen: '2026-11-19T10:00:20Z',
   messages: 5,
   messagesByDf: {},
@@ -89,6 +89,19 @@ describe('AircraftTable', () => {
       [{ type: 'select', icao: '738002', pan: true }],
       [{ type: 'select', icao: '738003', pan: false }],
     ])
+  })
+
+  it('highlights new aircraft with the fade offset by their age, not older ones', () => {
+    const withNew = new Map(fleet)
+    withNew.set('738099', ac('738099', { firstSeen: '2026-11-19T10:00:16Z', lastSeen: '2026-11-19T10:00:20Z' }))
+    render(<AircraftTable aircraft={withNew} selected={null} dispatch={vi.fn()} />)
+    const rows = screen.getAllByRole('row')
+    const fresh = rows.find((r) => r.getAttribute('data-icao') === '738099') as HTMLElement
+    expect(fresh.className).toContain('new')
+    expect(fresh.style.animationDelay).toMatch(/^-4\d{3}ms$/) // ~4 s old: fade continues from there
+    const old = rows.find((r) => r.getAttribute('data-icao') === '738002') as HTMLElement
+    expect(old.className).not.toContain('new')
+    expect(old.style.animationDelay).toBe('')
   })
 
   it('highlights and scrolls to the selected row, hides RSSI without data', () => {

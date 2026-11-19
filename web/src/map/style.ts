@@ -93,12 +93,14 @@ export interface TrailSegment {
 export function trailSegments(trail: readonly TrailPoint[]): TrailSegment[] {
   const out: TrailSegment[] = []
   let cur: TrailSegment | undefined
+  let curBucket: number | undefined = NaN
   for (const p of trail) {
-    const color = altitudeColor(p.alt === undefined ? undefined : Math.round(p.alt / 500) * 500)
+    const bucket = p.alt === undefined ? undefined : Math.round(p.alt / 500)
     const ll: [number, number] = [p.lat, p.lon]
-    if (cur?.color !== color) {
+    if (cur === undefined || bucket !== curBucket) {
       const prev = cur?.points.at(-1)
-      cur = { color, points: prev ? [prev, ll] : [ll] }
+      cur = { color: altitudeColor(bucket === undefined ? undefined : bucket * 500), points: prev ? [prev, ll] : [ll] }
+      curBucket = bucket
       out.push(cur)
     } else {
       cur.points.push(ll)

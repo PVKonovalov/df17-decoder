@@ -70,8 +70,7 @@ source:
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
-Every other path serves the web UI embedded in the binary (`make build` builds it first; without Node a
-placeholder page is served). Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
+Every other path serves the [web UI](#web-ui) embedded in the binary. Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
 
 Sample output from a replay of the synthetic `testdata/capture.txt`:
 
@@ -130,10 +129,61 @@ $ curl -s localhost:8080/api/stats
 }
 ```
 
+## Web UI
+
+Open `http://<host>:8080/` for a live map and a table of aircraft. The UI is built into the binary, so
+there's nothing else to deploy.
+
+- **Map** (Leaflet, OpenStreetMap tiles, no API key): the receiver with range rings at 25/50/100 nm, and
+  aircraft rotated by track and colored by altitude (legend bottom-left). Labels show callsign and altitude
+  in hundreds of feet. Trails cover the last 5 minutes. Aircraft whose position is older than 30 s fade out.
+  The browser loads the tiles from openstreetmap.org, so the map needs internet access.
+- **Table:** every aircraft, including Mode-S-only ones (marked "no pos"). Every column sorts, with unknown
+  values last. Emergencies (7500/7600/7700 or an ADS-B emergency state) are red and pinned to the top.
+  Filter by callsign, ICAO or squawk, or show only aircraft with a position.
+- **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
+  known field, and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+- **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
+  shows the aircraft count, messages per second, the receiver source status and the connection state. The
+  page reconnects with backoff by itself.
+- Light and dark themes follow the OS setting. On narrow screens the map sits above the table; on wide
+  screens a splitter between them can be dragged.
+
+### Building
+
+```sh
+make build        # npm ci + vite build into web/dist/app, then go build: one self-contained binary
+make run          # build and run with config/config.yaml
+```
+
+Without Node, `go build ./...` still works and serves a placeholder page instead of the UI.
+
+### Development
+
+```sh
+go run ./cmd/df17-decoder -config config/config.yaml    # backend on :8080
+cd web && npm run dev                                   # UI with hot reload on http://localhost:5173
+```
+
+The Vite dev server proxies `/api` (including the WebSocket) to `http://localhost:8080`. Set
+`DF17_BACKEND=http://host:port` to proxy elsewhere. Run `make test` and `make lint` for Go and UI tests,
+ESLint and `tsc`.
+
+### Demo without a radio
+
+```sh
+make demo         # generates testdata/busy.txt (150 aircraft over 10 min) and replays it in real time
+```
+
+`cmd/replaygen` writes the synthetic capture. By default 40% of the aircraft arrive during the replay (airliners
+enter at the edge of coverage), so new rows keep appearing, and 30% stop transmitting early and then expire. Its
+flags set these shares, the aircraft count, the share of Mode-S-only aircraft, the duration, the range and the
+receiver position (`go run ./cmd/replaygen -h`).
+
 ## Architecture
 
 ```
-source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──▶ tracker.Update ──▶ api (snapshots, SSE)
+source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──▶ tracker.Update ──▶ api (JSON, WebSocket, SSE) ──▶ web UI
                                                │                      │
                                                └──── stats ◀──────────┘
 ```
@@ -144,14 +194,19 @@ source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──�
   Each decoder cites its section of [The 1090 MHz Riddle](https://mode-s.org/1090mhz/).
 - `internal/tracker`: the aircraft table (one writer, many readers via copies), the known-address filter, CPR
   position resolving with range and speed checks, and TTL expiry.
-- `internal/api`: HTTP handlers. `internal/stats`: atomic counters. `internal/config`: YAML defaults and
-  validation. `internal/geo`: distance and bearing.
+- `internal/api`: HTTP handlers, the `/api/ws` WebSocket and the embedded UI. `internal/stats`: atomic
+  counters. `internal/config`: YAML defaults and validation. `internal/geo`: distance and bearing.
+- `web/`: React + TypeScript UI (Vite, Leaflet, TanStack Table), embedded through `web/embed.go`.
+  `web/src/api/aircraft.fixture.json` is a contract shared by a Go test and a TypeScript test, so the JSON
+  and the TS types can't drift apart.
+- `cmd/replaygen`: synthetic AVR capture generator (its own frame encoders, checked against the decoder).
 
 ## Development
 
 ```sh
-go test -race ./...
-go vet ./... && gofmt -l . && go fix ./...
+make test         # go test -race ./... and Vitest
+make lint         # go vet, gofmt, ESLint, tsc
+go fix ./...
 ```
 
 `internal/modes` tests use the known vectors from mode-s.org. `internal/app` runs `testdata/capture.txt`
