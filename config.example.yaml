@@ -1,0 +1,45 @@
+# df17-decoder configuration. Every key is optional; the values below are the built-in defaults.
+# Unknown keys are rejected. Durations are Go duration strings: 500ms, 10s, 1m30s.
+# CLI flags (-config, -log-level) override this file.
+
+source:
+  # Where raw frames come from:
+  #   tcp://host:30002    dump1090 raw AVR output (*hex; or @timestamp+hex;)
+  #   beast://host:30005  dump1090 Beast binary output (not implemented yet)
+  #   file://path         AVR lines from a file, for offline replay
+  url: tcp://localhost:30002
+  # Reconnect backoff: starts at reconnectMin, doubles after each failure, capped at reconnectMax.
+  reconnectMin: 1s
+  reconnectMax: 30s
+  # file:// only. Playback speed relative to the @-timestamps in the file; 0 = as fast as possible.
+  # Lines without a timestamp (*hex;) are always replayed without delay.
+  replaySpeed: 1.0
+
+receiver:
+  # Receiver position, decimal degrees. Reference for local CPR decoding and distance/bearing.
+  lat: 32.09
+  lon: 34.96
+  # Positions farther than this from the receiver are rejected as bogus.
+  maxRangeNm: 300
+
+decoder:
+  # Repair a single flipped bit in DF17 frames using the CRC. Off by default (small false-positive risk).
+  fixSingleBitErrors: false
+  # Maximum age difference between an even and an odd CPR frame for a global position decode.
+  cprPairMaxAge: 10s
+
+tracker:
+  # Forget an aircraft after this long without messages.
+  ttl: 60s
+  # How long an address seen in a valid DF11/17/18 is trusted for address/parity replies (DF0/4/5/16/20/21).
+  knownAddressTTL: 60s
+
+api:
+  # HTTP listen address.
+  listen: ":8080"
+  # Interval between snapshots pushed on /api/stream.
+  streamInterval: 1s
+
+log:
+  level: info    # debug|info|warn|error
+  format: text   # text|json
