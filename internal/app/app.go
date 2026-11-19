@@ -76,6 +76,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) (Counters, er
 	}
 	callsigns := map[uint32]string{}
 	cpr := map[uint32]*tracker.CPRState{}
+	emergencies := map[uint32]modes.Emergency{}
+	versions := map[uint32]int{}
 
 	for f := range frames {
 		c.Frames++
@@ -105,6 +107,25 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) (Counters, er
 
 		if p := m.AirbornePosition; p != nil {
 			handlePosition(log, &c, resolver, cpr, m, p)
+		}
+		if v := m.Velocity; v != nil {
+			log.Debug("velocity", velocityAttrs(m.ICAO, v)...)
+		}
+		if s := m.AircraftStatus; s != nil {
+			e := s.Emergency
+			if sq, ok := modes.SquawkEmergency(s.Squawk); ok && e == modes.EmergencyNone {
+				e = sq
+			}
+			if prev, seen := emergencies[m.ICAO]; e != prev && (seen || e != modes.EmergencyNone) {
+				emergencies[m.ICAO] = e
+				log.Info("emergency", "icao", modes.ICAOString(m.ICAO), "state", e, "squawk", s.Squawk)
+			}
+		}
+		if s := m.OperationalStatus; s != nil {
+			if prev, seen := versions[m.ICAO]; !seen || prev != s.Version {
+				versions[m.ICAO] = s.Version
+				log.Debug("operational status", "icao", modes.ICAOString(m.ICAO), "adsbVersion", s.Version, "surface", s.Surface)
+			}
 		}
 	}
 
@@ -157,6 +178,26 @@ func handlePosition(log *slog.Logger, c *Counters, r tracker.PositionResolver, s
 	} else {
 		log.Debug("position", attrs...)
 	}
+}
+
+func velocityAttrs(icao uint32, v *modes.Velocity) []any {
+	attrs := []any{"icao", modes.ICAOString(icao), "subtype", v.Subtype}
+	if v.GroundSpeed != nil {
+		attrs = append(attrs, "groundSpeed", round(*v.GroundSpeed, 1), "track", round(*v.Track, 1))
+	}
+	if v.Heading != nil {
+		attrs = append(attrs, "heading", round(*v.Heading, 1))
+	}
+	if v.IAS != nil {
+		attrs = append(attrs, "ias", *v.IAS)
+	}
+	if v.TAS != nil {
+		attrs = append(attrs, "tas", *v.TAS)
+	}
+	if v.VerticalRate != nil {
+		attrs = append(attrs, "verticalRate", *v.VerticalRate, "vrBaro", v.VerticalRateBaro)
+	}
+	return attrs
 }
 
 func round(v float64, places int) float64 {

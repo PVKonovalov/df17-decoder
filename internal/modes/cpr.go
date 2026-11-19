@@ -20,7 +20,7 @@ type CPRFrame struct {
 }
 
 // NL returns the number of longitude zones at latitude lat (degrees), closed form.
-// The 1090 MHz Riddle, "Compact Position Reporting" → "Number of longitude zones" (https://mode-s.org/decode/content/ads-b/3-airborne-position.html).
+// The 1090 MHz Riddle, "Compact Position Reporting" → "Number of longitude zones" (https://mode-s.org/1090mhz/content/ads-b/3-airborne-position.html).
 func NL(lat float64) int {
 	lat = math.Abs(lat)
 	switch {

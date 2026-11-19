@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,8 +29,8 @@ func TestRun_ReplaysCapture(t *testing.T) {
 	if c.Fixed != 1 || c.CRCFailures != 1 || c.Invalid != 1 {
 		t.Errorf("fixed=%d crc=%d invalid=%d, want 1 each", c.Fixed, c.CRCFailures, c.Invalid)
 	}
-	if c.Decoded != 5 || c.Positions != 2 || c.CPRRejected != 0 {
-		t.Errorf("decoded=%d positions=%d cprRejected=%d, want 5, 2, 0", c.Decoded, c.Positions, c.CPRRejected)
+	if c.Decoded != 8 || c.Unsupported != 0 || c.Positions != 2 || c.CPRRejected != 0 {
+		t.Errorf("decoded=%d unsupported=%d positions=%d cprRejected=%d, want 8, 0, 2, 0", c.Decoded, c.Unsupported, c.Positions, c.CPRRejected)
 	}
 	if !strings.Contains(buf.String(), "lat=52.26578 lon=3.93891 method=local-receiver") ||
 		!strings.Contains(buf.String(), "altitude=38000") {
@@ -48,5 +50,40 @@ func TestRun_MissingFile(t *testing.T) {
 	var buf bytes.Buffer
 	if _, err := Run(t.Context(), cfg, NewLogger(cfg.Log, &buf)); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestRun_EmergencyLoggedOnChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.txt")
+	frames := strings.Join([]string{
+		"*8D738062E1092D000000000ABE6D;", // TC28 squawk 1346, no emergency: not logged
+		"*8D738062E10AAA00000000998731;", // squawk 7700: emergency
+		"*8D738062E10AAA00000000998731;", // unchanged: not logged again
+		"*8D738062E1092D000000000ABE6D;", // cleared
+		"*8D738062F8000000004000A444DE;", // TC31 version 2
+	}, "\n")
+	if err := os.WriteFile(path, []byte(frames), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Source.URL = "file://" + path
+	cfg.Log.Level = "debug"
+
+	var buf bytes.Buffer
+	c, err := Run(t.Context(), cfg, NewLogger(cfg.Log, &buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if c.Decoded != 5 {
+		t.Errorf("decoded = %d, want 5", c.Decoded)
+	}
+	if strings.Count(out, "msg=emergency") != 2 ||
+		!strings.Contains(out, "msg=emergency icao=738062 state=general squawk=7700") ||
+		!strings.Contains(out, "msg=emergency icao=738062 state=none squawk=1346") {
+		t.Errorf("emergency log lines wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "adsbVersion=2") {
+		t.Errorf("version not logged:\n%s", out)
 	}
 }

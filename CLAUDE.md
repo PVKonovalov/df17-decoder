@@ -19,7 +19,7 @@ Go project for a Mode S / ADS-B decoder (per README): DF17 decoding (callsign, a
 
 The full spec and milestone plan are in `AGENT_PROMPT.md` (backend) and `FRONTEND_PROMPT.md` (web UI). Consume raw frames only (AVR/Beast); no dump1090 decoded outputs, no third-party ADS-B libraries, stdlib only apart from `gopkg.in/yaml.v3`.
 
-**Progress:** Milestones 1–2 are done (config, AVR TCP/file sources, CRC, DF17/18 callsign, altitude, CPR positions). Milestones 3–7 are not started.
+**Progress:** Milestones 1–3 are done (config, AVR TCP/file sources, CRC, DF17/18 callsign, altitude, CPR positions, velocity, TC 28/31). Milestones 4–7 are not started.
 
 ## Commands
 
@@ -39,6 +39,7 @@ Data flow: `source` → `chan source.Frame` → `app.Run` decode loop → `track
 
 - `internal/config`: defaults < YAML (`KnownFields(true)`) < CLI flags (`-config`, `-log-level` only). `Load` validates and reports all errors together. `config.Duration` is a YAML duration string. `Source.Endpoint()` splits `source.url` into scheme and address. `config/config.example.yaml` must equal `Default()`; a test enforces this.
 - `internal/modes`: pure, with no I/O and no global state. `Decode(msg, time, Options)` returns a `Message` and always sets DF, even on error, so callers can count drops. All bit access goes through `bits(msg, start, length)`, which uses 1-based, MSB-first numbering matching mode-s.org. `Remainder` is the CRC-24 syndrome: 0 for DF17/18, the IC for DF11, the ICAO address for address/parity DFs. Each decoder cites its mode-s.org section in a one-line comment.
+- `internal/modes` also holds velocity (TC 19), aircraft status (TC 28 subtype 1, `Squawk` for 13-bit identity fields) and operational status (TC 31). Section citations point to https://mode-s.org/1090mhz/content/... (the old /decode/ path redirects). Tests build synthetic ES frames with valid parity via `makeES`/`me` in `status_test.go`.
 - `internal/modes` also holds altitude (`Altitude12` for ES, `Altitude13` for the AC field, `Gillham`) and CPR (`NL`, `CPRGlobal`, `CPRLocal`, and `EncodeCPR` for building synthetic test frames).
 - `internal/source`: `TCP` (reconnects with exponential backoff, closes the conn via `context.AfterFunc` on cancel) and `File`. In file replay, `Frame.Time` is capture time derived from the `@` 12 MHz timestamps at any `replaySpeed`, so CPR pair ages and speed checks see the original timing; `*` lines reuse the last timestamped time. Both share `readAVR` and atomic `Stats`. Beast is not implemented yet.
 - `internal/tracker`: `PositionResolver.Resolve` tries a global decode (fresh even/odd pair), then a local decode against the aircraft's last position (younger than `tracker.ttl`), then a local decode against the receiver (≤180 NM). It rejects results beyond `maxRangeNm` or implying more than 1500 kt. A rejected global fix clears the last position so one bad fix can't lock the aircraft out.

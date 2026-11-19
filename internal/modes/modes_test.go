@@ -136,7 +136,6 @@ func TestDecode_Errors(t *testing.T) {
 		{"short DF with long frame", "5D4840D6202CC371C32CE0576098", ErrLength},
 		{"DF11 not yet supported", "5D4840D6202CC3", ErrUnsupported},
 		{"bad crc", "8D4840D6202CC371C32CE0576099", ErrCRC},
-		{"unsupported TC", "8D485020994409940838175B284F", ErrUnsupportedTC},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

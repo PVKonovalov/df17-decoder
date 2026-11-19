@@ -74,7 +74,7 @@ type PositionResolver struct {
 // otherwise local decode against the receiver (accepted only within 180 NM). Results failing the range or speed
 // check are rejected; a rejected global decode also drops the aircraft's last position so a bad fix cannot
 // lock out good ones.
-// The 1090 MHz Riddle, "Airborne position" (https://mode-s.org/decode/content/ads-b/3-airborne-position.html).
+// The 1090 MHz Riddle, "Airborne position" (https://mode-s.org/1090mhz/content/ads-b/3-airborne-position.html).
 func (r PositionResolver) Resolve(st *CPRState, f modes.CPRFrame, t time.Time) (Position, error) {
 	sample := &cprSample{frame: f, time: t}
 	other := st.even

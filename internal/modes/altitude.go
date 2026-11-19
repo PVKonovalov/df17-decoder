@@ -2,7 +2,7 @@ package modes
 
 // Altitude12 decodes the 12-bit ADS-B altitude field (TC 9–18): C1 A1 C2 A2 C4 A4 B1 Q B2 D2 B4 D4.
 // Q=1: 25 ft steps; Q=0: Gillham code in 100 ft steps. ok=false when unavailable (all zero) or invalid.
-// The 1090 MHz Riddle, "Airborne position" → "Altitude decoding" (https://mode-s.org/decode/content/ads-b/3-airborne-position.html).
+// The 1090 MHz Riddle, "Airborne position" → "Altitude decoding" (https://mode-s.org/1090mhz/content/ads-b/3-airborne-position.html).
 func Altitude12(field uint32) (ft int, ok bool) {
 	if field == 0 {
 		return 0, false
@@ -16,7 +16,7 @@ func Altitude12(field uint32) (ft int, ok bool) {
 
 // Altitude13 decodes the 13-bit AC field of DF0/4/16/20: C1 A1 C2 A2 C4 A4 M B1 Q B2 D2 B4 D4.
 // M=1 (metric) is not supported and returns ok=false.
-// The 1090 MHz Riddle, "Mode S surveillance replies" (https://mode-s.org/decode/content/mode-s/3-surveillance.html).
+// The 1090 MHz Riddle, "Mode S surveillance replies" (https://mode-s.org/1090mhz/content/mode-s/3-surveillance.html).
 func Altitude13(field uint32) (ft int, ok bool) {
 	if field == 0 || field&0x40 != 0 {
 		return 0, false

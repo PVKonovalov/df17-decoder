@@ -7,7 +7,7 @@ const generator = 0xFFF409
 // XORed with the trailing 24-bit parity field). It is 0 for an intact DF17/18 frame, the interrogator
 // code for DF11 and the ICAO address for address/parity replies (DF0/4/5/16/20/21).
 //
-// The 1090 MHz Riddle, "Error control" (https://mode-s.org/decode/content/ads-b/8-error-control.html).
+// The 1090 MHz Riddle, "Error control" (https://mode-s.org/1090mhz/content/ads-b/8-error-control.html).
 func Remainder(msg []byte) uint32 {
 	n := len(msg)*8 - 24
 	var crc uint32
