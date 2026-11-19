@@ -29,38 +29,46 @@ func (f *File) Run(ctx context.Context, out chan<- Frame) error {
 	f.stats.connected.Store(true)
 	defer f.stats.connected.Store(false)
 
-	var pace func(uint64) error
-	if f.Opt.ReplaySpeed > 0 {
-		pace = newPacer(ctx, f.Opt.ReplaySpeed)
-	}
-	return readAVR(ctx, fh, out, &f.stats, pace)
+	return readAVR(ctx, fh, out, &f.stats, newReplayClock(ctx, f.Opt.ReplaySpeed))
 }
 
-// newPacer returns a function that sleeps until a frame with 12 MHz timestamp ts is due, relative to the
-// first timestamped frame. A timestamp going backwards (receiver restart) re-anchors the clock.
-func newPacer(ctx context.Context, speed float64) func(ts uint64) error {
+// newReplayClock returns a function giving each frame its time in capture time: the wall clock at the first
+// @-timestamped frame plus the elapsed 12 MHz ticks since then, independent of replay speed, so CPR pair ages
+// and speed checks see the original timing. Lines without a timestamp get the time of the last timestamped one
+// (or the wall clock before any). With speed > 0 it also sleeps until the frame is due; a timestamp going
+// backwards (receiver restart) re-anchors the clock.
+func newReplayClock(ctx context.Context, speed float64) func(ts uint64) (time.Time, error) {
 	var first uint64
-	var start time.Time
-	return func(ts uint64) error {
+	var start, last time.Time
+	return func(ts uint64) (time.Time, error) {
 		if ts == 0 {
-			return nil
+			if last.IsZero() {
+				return time.Now(), nil
+			}
+			return last, nil
 		}
 		if start.IsZero() || ts < first {
 			first, start = ts, time.Now()
-			return nil
+			last = start
+			return last, nil
 		}
-		due := start.Add(time.Duration(float64(ts-first) / clockHz / speed * float64(time.Second)))
-		wait := time.Until(due)
+		elapsed := time.Duration(float64(ts-first) / clockHz * float64(time.Second))
+		last = start.Add(elapsed)
+		if speed <= 0 {
+			return last, nil
+		}
+
+		wait := time.Until(start.Add(time.Duration(float64(elapsed) / speed)))
 		if wait <= 0 {
-			return nil
+			return last, nil
 		}
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
-			return nil
+			return last, nil
 		case <-ctx.Done():
-			return ctx.Err()
+			return time.Time{}, ctx.Err()
 		}
 	}
 }

@@ -3,6 +3,7 @@ package modes
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -34,7 +35,16 @@ type Message struct {
 	FixedBit int // 1-based position of a repaired bit, 0 when the frame was intact
 	TC       int // ADS-B type code, 0 for non-ES frames
 
-	Identification *Identification
+	Identification   *Identification
+	AirbornePosition *AirbornePosition
+}
+
+// AirbornePosition is the content of ADS-B type codes 9–18 (barometric altitude) and 20–22 (GNSS height).
+type AirbornePosition struct {
+	Altitude           *int // ft; nil when unavailable or invalid
+	GNSS               bool // Altitude is GNSS height (TC 20–22) rather than barometric
+	SurveillanceStatus int  // 0 none, 1 permanent alert, 2 temporary alert, 3 SPI
+	CPR                CPRFrame
 }
 
 // Identification is the content of ADS-B type codes 1–4.
@@ -105,10 +115,39 @@ func decodeExtendedSquitter(msg []byte, m Message, opt Options) (Message, error)
 			return m, err
 		}
 		m.Identification = &id
+	case m.TC >= 9 && m.TC <= 18, m.TC >= 20 && m.TC <= 22:
+		p := decodeAirbornePosition(msg, m.TC)
+		m.AirbornePosition = &p
 	default:
 		return m, ErrUnsupportedTC
 	}
 	return m, nil
+}
+
+// decodeAirbornePosition decodes TC 9–18 and 20–22.
+// ME layout: TC(5) SS(2) SAF(1) ALT(12) T(1) F(1) LAT-CPR(17) LON-CPR(17).
+// The 1090 MHz Riddle, "Airborne position" (https://mode-s.org/decode/content/ads-b/3-airborne-position.html).
+func decodeAirbornePosition(msg []byte, tc int) AirbornePosition {
+	p := AirbornePosition{
+		GNSS:               tc >= 20,
+		SurveillanceStatus: int(bits(msg, 38, 2)),
+		CPR: CPRFrame{
+			Odd: bits(msg, 54, 1) == 1,
+			Lat: uint32(bits(msg, 55, 17)),
+			Lon: uint32(bits(msg, 72, 17)),
+		},
+	}
+	alt := uint32(bits(msg, 41, 12))
+	if p.GNSS {
+		// GNSS height is a plain 12-bit value in metres (as in pyModeS); not verified against DO-260B.
+		if alt != 0 {
+			ft := int(math.Round(float64(alt) * 3.28084))
+			p.Altitude = &ft
+		}
+	} else if ft, ok := Altitude12(alt); ok {
+		p.Altitude = &ft
+	}
+	return p
 }
 
 const charset = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ##### ###############0123456789######"

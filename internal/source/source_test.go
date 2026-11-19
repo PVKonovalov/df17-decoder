@@ -94,6 +94,7 @@ func TestFile_PacesByTimestamp(t *testing.T) {
 	}
 	src, _ := New("file", path, Options{ReplaySpeed: 3, Logger: quietLogger()})
 
+	start := time.Now()
 	frames, err := collect(t.Context(), t, src)
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +102,35 @@ func TestFile_PacesByTimestamp(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("got %d frames", len(frames))
 	}
-	if gap := frames[1].Time.Sub(frames[0].Time); gap < 150*time.Millisecond || gap > time.Second {
-		t.Errorf("gap = %s, want ~200ms", gap)
+	if wall := time.Since(start); wall < 150*time.Millisecond || wall > time.Second {
+		t.Errorf("replay took %s, want ~200ms", wall)
+	}
+	if gap := frames[1].Time.Sub(frames[0].Time); gap != 600*time.Millisecond {
+		t.Errorf("frame time gap = %s, want 600ms capture time", gap)
+	}
+}
+
+func TestFile_FastReplayKeepsCaptureTiming(t *testing.T) {
+	content := fmt.Sprintf("@%012X5D4840D6202CC3;\n*5D4840D6202CC3;\n@%012X5D4840D6202CC3;\n", 1000, 1000+clockHz*30)
+	path := filepath.Join(t.TempDir(), "c.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, _ := New("file", path, Options{ReplaySpeed: 0, Logger: quietLogger()})
+
+	start := time.Now()
+	frames, err := collect(t.Context(), t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("speed 0 replay should not sleep")
+	}
+	if !frames[1].Time.Equal(frames[0].Time) {
+		t.Errorf("untimestamped line: time %v, want previous frame time %v", frames[1].Time, frames[0].Time)
+	}
+	if gap := frames[2].Time.Sub(frames[0].Time); gap != 30*time.Second {
+		t.Errorf("gap = %s, want 30s capture time", gap)
 	}
 }
 

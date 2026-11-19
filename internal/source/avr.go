@@ -47,9 +47,9 @@ func ParseAVR(line []byte) (data []byte, timestamp uint64, err error) {
 }
 
 // readAVR reads AVR lines from r and sends valid frames to out until r ends or ctx is cancelled.
-// Empty lines are skipped silently; malformed lines are counted. pace, if non-nil, is called before
-// each frame is sent and may block.
-func readAVR(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats, pace func(ts uint64) error) error {
+// Empty lines are skipped silently; malformed lines are counted. clock, if non-nil, gives the frame time
+// and may block to pace a replay; nil means the wall clock.
+func readAVR(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats, clock func(ts uint64) (time.Time, error)) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		line := sc.Bytes()
@@ -61,16 +61,16 @@ func readAVR(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats, p
 			stats.malformed.Add(1)
 			continue
 		}
-		if pace != nil {
-			if err = pace(ts); err != nil {
+		frameTime := time.Now()
+		if clock != nil {
+			if frameTime, err = clock(ts); err != nil {
 				return err
 			}
 		}
-		now := time.Now()
 		select {
-		case out <- Frame{Data: data, Time: now, Timestamp: ts}:
+		case out <- Frame{Data: data, Time: frameTime, Timestamp: ts}:
 			stats.frames.Add(1)
-			stats.lastFrame.Store(now.UnixNano())
+			stats.lastFrame.Store(time.Now().UnixNano())
 		case <-ctx.Done():
 			return ctx.Err()
 		}
