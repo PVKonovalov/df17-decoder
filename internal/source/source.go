@@ -29,7 +29,7 @@ type Options struct {
 	Logger       *slog.Logger
 }
 
-// New creates a source for scheme ("tcp", "file") and address (host:port or path), as returned by
+// New creates a source for scheme ("tcp", "beast", "file") and address (host:port or path), as returned by
 // config.Source.Endpoint.
 func New(scheme, address string, opt Options) (Source, error) {
 	if opt.Logger == nil {
@@ -41,7 +41,7 @@ func New(scheme, address string, opt Options) (Source, error) {
 	case "file":
 		return &File{Path: address, Opt: opt}, nil
 	case "beast":
-		return nil, fmt.Errorf("source: beast input is not implemented yet")
+		return &TCP{Address: address, Format: Beast, Opt: opt}, nil
 	default:
 		return nil, fmt.Errorf("source: unknown scheme %q", scheme)
 	}

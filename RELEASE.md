@@ -5,3 +5,5 @@
 - 2026-11-19: M3 — TC19 velocity (all subtypes, vertical rate, GNSS-baro diff), TC28 emergency state and squawk, TC31 ADS-B version; emergency changes logged.
 - 2026-11-19: M4 — DF11 all-call, DF0/4/5/16/20/21 via address/parity with known-address table, altitude/squawk/on-ground, BDS 2,0 callsign.
 - 2026-11-19: M5 — Aircraft tracker with TTL, HTTP API: /api/aircraft (filter, sort), /api/aircraft/{icao}, /api/stats, /api/stream (SSE), /healthz.
+- 2026-11-19: M6 — Beast binary input (beast://host:30005): 0x1A unescaping, resync on corruption, 12 MHz timestamps, signal level as RSSI dBFS on aircraft.
+- 2026-11-19: M7 — README: features, running against dump1090 (AVR/Beast), offline replay, API reference with sample curl output, architecture overview.

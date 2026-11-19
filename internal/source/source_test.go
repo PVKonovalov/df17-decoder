@@ -1,7 +1,6 @@
 package source
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -232,7 +231,7 @@ func TestNew_UnknownScheme(t *testing.T) {
 	if _, err := New("udp", "x", Options{}); err == nil {
 		t.Error("expected error")
 	}
-	if _, err := New("beast", "x:1", Options{}); err == nil || !bytes.Contains([]byte(err.Error()), []byte("not implemented")) {
-		t.Errorf("beast: err = %v", err)
+	if src, err := New("beast", "x:1", Options{}); err != nil || src.(*TCP).Format != Beast {
+		t.Errorf("beast: src = %v, err = %v", src, err)
 	}
 }

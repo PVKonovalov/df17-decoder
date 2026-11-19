@@ -6,9 +6,18 @@ import (
 	"time"
 )
 
-// TCP reads AVR lines from a dump1090 raw output port and reconnects with exponential backoff.
+// Format is the wire format of a TCP source.
+type Format int
+
+const (
+	AVR   Format = iota // dump1090 raw output, port 30002
+	Beast               // dump1090 Beast binary output, port 30005
+)
+
+// TCP reads frames from a dump1090 raw or Beast output port and reconnects with exponential backoff.
 type TCP struct {
 	Address string
+	Format  Format
 	Opt     Options
 	stats   Stats
 }
@@ -17,7 +26,11 @@ func (t *TCP) Stats() *Stats { return &t.stats }
 
 // Run returns only when ctx is cancelled.
 func (t *TCP) Run(ctx context.Context, out chan<- Frame) error {
-	log := t.Opt.Logger.With("source", "tcp://"+t.Address)
+	scheme := "tcp://"
+	if t.Format == Beast {
+		scheme = "beast://"
+	}
+	log := t.Opt.Logger.With("source", scheme+t.Address)
 	backoff := t.Opt.ReconnectMin
 	var dialer net.Dialer
 
@@ -28,7 +41,11 @@ func (t *TCP) Run(ctx context.Context, out chan<- Frame) error {
 			backoff = t.Opt.ReconnectMin
 			t.stats.connected.Store(true)
 			stop := context.AfterFunc(ctx, func() { conn.Close() })
-			err = readAVR(ctx, conn, out, &t.stats, nil)
+			if t.Format == Beast {
+				err = readBeast(ctx, conn, out, &t.stats)
+			} else {
+				err = readAVR(ctx, conn, out, &t.stats, nil)
+			}
 			stop()
 			conn.Close()
 			t.stats.connected.Store(false)

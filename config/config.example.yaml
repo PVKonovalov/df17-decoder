@@ -5,7 +5,7 @@
 source:
   # Where raw frames come from:
   #   tcp://host:30002    dump1090 raw AVR output (*hex; or @timestamp+hex;)
-  #   beast://host:30005  dump1090 Beast binary output (not implemented yet)
+  #   beast://host:30005  dump1090 Beast binary output
   #   file://path         AVR lines from a file, for offline replay
   url: tcp://localhost:30002
   # Reconnect backoff: starts at reconnectMin, doubles after each failure, capped at reconnectMax.
