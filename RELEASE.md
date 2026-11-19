@@ -4,3 +4,4 @@
 - 2026-11-19: M2 — Altitude (25 ft and Gillham), global/local CPR with exact NL, range and speed sanity checks; file replay uses capture-time timestamps.
 - 2026-11-19: M3 — TC19 velocity (all subtypes, vertical rate, GNSS-baro diff), TC28 emergency state and squawk, TC31 ADS-B version; emergency changes logged.
 - 2026-11-19: M4 — DF11 all-call, DF0/4/5/16/20/21 via address/parity with known-address table, altitude/squawk/on-ground, BDS 2,0 callsign.
+- 2026-11-19: M5 — Aircraft tracker with TTL, HTTP API: /api/aircraft (filter, sort), /api/aircraft/{icao}, /api/stats, /api/stream (SSE), /healthz.

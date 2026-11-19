@@ -19,7 +19,7 @@ Go project for a Mode S / ADS-B decoder (per README): DF17 decoding (callsign, a
 
 The full spec and milestone plan are in `AGENT_PROMPT.md` (backend) and `FRONTEND_PROMPT.md` (web UI). Consume raw frames only (AVR/Beast); no dump1090 decoded outputs, no third-party ADS-B libraries, stdlib only apart from `gopkg.in/yaml.v3`.
 
-**Progress:** Milestones 1–4 are done (config, AVR TCP/file sources, CRC, DF17/18 callsign, altitude, CPR positions, velocity, TC 28/31, DF11 and address/parity Mode S replies). Milestones 5–7 are not started.
+**Progress:** Milestones 1–5 are done (decoding of DF17/18 and Mode S replies, aircraft tracker, HTTP/JSON API with SSE and stats). Milestones 6 (Beast input) and 7 (README) are not started.
 
 ## Commands
 
@@ -35,9 +35,11 @@ For offline runs, set `source.url: file://testdata/capture.txt` with `replaySpee
 
 ## Architecture
 
-Data flow: `source` → `chan source.Frame` → `app.pipeline.handle` (decode, known-address filter, `tracker.PositionResolver`, change logging) → (full tracker/API in M5).
+Data flow: `source.Source.Run` → `chan source.Frame` → `app.Service.handle` (decode, count errors) → `tracker.Tracker.Update` (known-address filter, CPR, state, change logging) → `api` handlers read `Tracker.Snapshot()`/`Get()` copies and `stats.Stats`.
 
-Address/parity rule: `modes.Decode` sets `Message.AddressParity` for DF0/4/5/16/20/21 and puts the CRC remainder in `ICAO`. The pipeline accepts those only if `tracker.KnownAddresses` has seen the address in an intact (not bit-repaired) DF11/17/18 frame within `tracker.knownAddressTTL`. DF11 is accepted when its remainder is ≤ 0x7F (interrogator code).
+`app.Service`: `Ingest(ctx)` consumes the source until it ends; integration tests call it directly. `Run(ctx)` adds the HTTP server and a 1 s expiry ticker, and keeps serving after a file replay ends. HTTP request contexts derive from the service ctx (`BaseContext`), so SSE streams end on shutdown. `Listen()` can be called first to learn the bound address (tests use `127.0.0.1:0`).
+
+Address/parity rule: `modes.Decode` sets `Message.AddressParity` for DF0/4/5/16/20/21 and puts the CRC remainder in `ICAO`. The tracker accepts those only if `KnownAddresses` has seen the address in an intact (not bit-repaired) DF11/17/18 frame within `tracker.knownAddressTTL`. DF11 is accepted when its remainder is ≤ 0x7F (interrogator code).
 
 - `internal/config`: defaults < YAML (`KnownFields(true)`) < CLI flags (`-config`, `-log-level` only). `Load` validates and reports all errors together. `config.Duration` is a YAML duration string. `Source.Endpoint()` splits `source.url` into scheme and address. `config/config.example.yaml` must equal `Default()`; a test enforces this.
 - `internal/modes`: pure, with no I/O and no global state. `Decode(msg, time, Options)` returns a `Message` and always sets DF, even on error, so callers can count drops. All bit access goes through `bits(msg, start, length)`, which uses 1-based, MSB-first numbering matching mode-s.org. `Remainder` is the CRC-24 syndrome: 0 for DF17/18, the IC for DF11, the ICAO address for address/parity DFs. Each decoder cites its mode-s.org section in a one-line comment.
@@ -46,6 +48,9 @@ Address/parity rule: `modes.Decode` sets `Message.AddressParity` for DF0/4/5/16/
 - `internal/modes` also holds altitude (`Altitude12` for ES, `Altitude13` for the AC field, `Gillham`) and CPR (`NL`, `CPRGlobal`, `CPRLocal`, and `EncodeCPR` for building synthetic test frames).
 - `internal/source`: `TCP` (reconnects with exponential backoff, closes the conn via `context.AfterFunc` on cancel) and `File`. In file replay, `Frame.Time` is capture time derived from the `@` 12 MHz timestamps at any `replaySpeed`, so CPR pair ages and speed checks see the original timing; `*` lines reuse the last timestamped time. Both share `readAVR` and atomic `Stats`. Beast is not implemented yet.
 - `internal/tracker`: `PositionResolver.Resolve` tries a global decode (fresh even/odd pair), then a local decode against the aircraft's last position (younger than `tracker.ttl`), then a local decode against the receiver (≤180 NM). It rejects results beyond `maxRangeNm` or implying more than 1500 kt. A rejected global fix clears the last position so one bad fix can't lock the aircraft out.
+- `internal/tracker/tracker.go`: the aircraft table. One writer (`Update`), many readers (`Snapshot`/`Get`/`Len`) behind an RWMutex. Readers get copies via `Aircraft.clone()`. Pointer fields in `Aircraft` must be replaced, never mutated in place, because clones share them. Ages use data time: newest frame time plus wall time since it arrived, so fast replays expire correctly. `country.go` maps ICAO blocks to countries (partial table).
+- `internal/api`: Go 1.22 `ServeMux` patterns. JSON is camelCase, with unknown values omitted via pointers and `omitempty` (a real 0 ft stays). Unknown `/api/*` paths return a JSON 404. `/api/stream` is SSE (`data: <aircraft array>`). `/healthz` returns 503 if no frame arrived within 30 s.
+- `internal/stats`: atomic counters, per-DF frames, and messages/s over a 60 s window of wall-clock buckets.
 - `internal/geo`: haversine distance (NM) and initial bearing.
 - `internal/app`: wiring and the decode loop. `cmd/df17-decoder/main.go` stays thin.
 
