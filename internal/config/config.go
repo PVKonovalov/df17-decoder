@@ -97,30 +97,42 @@ func Default() Config {
 	}
 }
 
-// Load builds the configuration: defaults < YAML file at path < overrides, then validates it.
+// Load builds the configuration: defaults < YAML file at path (skipped when path is "") < overrides,
+// then validates it.
 func Load(path string, ov Overrides) (Config, error) {
 	cfg := Default()
-
-	f, err := os.Open(path)
-	if err != nil {
-		return cfg, fmt.Errorf("config: %w", err)
-	}
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-	if err = dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
-		return cfg, fmt.Errorf("config %s: %w", path, err)
+	if path != "" {
+		if err := decodeFile(path, &cfg); err != nil {
+			return cfg, err
+		}
 	}
 
 	if ov.LogLevel != "" {
 		cfg.Log.Level = ov.LogLevel
 	}
 
-	if err = cfg.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
+		if path == "" {
+			return cfg, fmt.Errorf("config: %w", err)
+		}
 		return cfg, fmt.Errorf("config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func decodeFile(path string, cfg *Config) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	defer f.Close()
+
+	dec := yaml.NewDecoder(f)
+	dec.KnownFields(true)
+	if err = dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("config %s: %w", path, err)
+	}
+	return nil
 }
 
 // Validate reports every invalid value at once.

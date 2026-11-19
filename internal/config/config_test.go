@@ -28,7 +28,7 @@ func TestLoad_EmptyFileGivesDefaults(t *testing.T) {
 }
 
 func TestLoad_ExampleFileMatchesDefaults(t *testing.T) {
-	cfg, err := Load("../../config.example.yaml", Overrides{})
+	cfg, err := Load("../../config/config.example.yaml", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +103,18 @@ func TestLoad_Errors(t *testing.T) {
 func TestLoad_BadFlagOverride(t *testing.T) {
 	if _, err := Load(writeConfig(t, ""), Overrides{LogLevel: "loud"}); err == nil {
 		t.Fatal("expected error for invalid -log-level")
+	}
+}
+
+func TestLoad_EmptyPathGivesDefaults(t *testing.T) {
+	cfg, err := Load("", Overrides{LogLevel: "debug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Default()
+	want.Log.Level = "debug"
+	if cfg != want {
+		t.Errorf("got %+v, want %+v", cfg, want)
 	}
 }
 

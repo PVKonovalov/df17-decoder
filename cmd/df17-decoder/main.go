@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "./config.yaml", "path to the YAML config file")
+	configPath := flag.String("config", "", "path to the YAML config file (empty: built-in defaults)")
 	logLevel := flag.String("log-level", "", "override log.level (debug|info|warn|error)")
 	flag.Parse()
 

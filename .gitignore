@@ -30,8 +30,10 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+.DS_Store
 
 # Local service config (see config.example.yaml)
-/config.yaml
+/config/config.yaml
