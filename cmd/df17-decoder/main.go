@@ -27,7 +27,11 @@ func main() {
 	defer stop()
 
 	log := app.NewLogger(cfg.Log, os.Stderr)
-	if _, err = app.Run(ctx, cfg, log); err != nil {
+	svc, err := app.New(cfg, log)
+	if err == nil {
+		err = svc.Run(ctx)
+	}
+	if err != nil {
 		log.Error("exiting", "err", err)
 		os.Exit(1)
 	}
