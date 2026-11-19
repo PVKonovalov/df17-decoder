@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Stats } from '../api/types'
 import { initialState } from '../state/reducer'
 import { Header } from './Header'
@@ -36,5 +36,25 @@ describe('Header', () => {
   it('has no version before the first stats message', () => {
     render(<Header state={initialState} />)
     expect(screen.getByRole('heading', { name: 'df17-decoder' }).hasAttribute('title')).toBe(false)
+  })
+})
+
+describe('Header panel switches', () => {
+  it('shows and toggles the table and legend', () => {
+    const onTable = vi.fn()
+    const onLegend = vi.fn()
+    render(<Header state={initialState} panels={{ table: true, onTable, legend: false, onLegend }} />)
+    const table = screen.getByRole('button', { name: 'Table' })
+    const legend = screen.getByRole('button', { name: 'Legend' })
+    expect([table.getAttribute('aria-pressed'), legend.getAttribute('aria-pressed')]).toEqual(['true', 'false'])
+    fireEvent.click(table)
+    fireEvent.click(legend)
+    expect(onTable).toHaveBeenCalledWith(false)
+    expect(onLegend).toHaveBeenCalledWith(true)
+  })
+
+  it('has no switches without panels', () => {
+    render(<Header state={initialState} />)
+    expect(screen.queryByRole('group', { name: 'Show panels' })).toBeNull()
   })
 })

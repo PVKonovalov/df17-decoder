@@ -26,13 +26,14 @@ const RING_NM = [25, 50, 100] as const
 interface Props {
   state: State
   dispatch: Dispatch<Action>
+  showLegend?: boolean
 }
 
 /**
  * LiveMap shows the receiver with range rings and all aircraft with a position, once the receiver and the
  * tile layer (the map section of the service config) are known.
  */
-export function LiveMap({ state, dispatch }: Props) {
+export function LiveMap({ state, dispatch, showLegend = true }: Props) {
   const { receiver, map: tiles } = state
   const [chosenMode, setColorMode] = useColorMode()
   const [chosenView, setCoverageView] = useCoverageView()
@@ -78,15 +79,17 @@ export function LiveMap({ state, dispatch }: Props) {
         <PanToSelection state={state} />
         <InvalidateOnResize />
       </MapContainer>
-      <MapLegend
-        mode={colorMode}
-        onMode={hasSignal ? setColorMode : undefined}
-        coverage={coverageView}
-        onCoverage={setCoverageView}
-        heatSignal={heatSignal}
-        band={band}
-        onBand={setBand}
-      />
+      {showLegend && (
+        <MapLegend
+          mode={colorMode}
+          onMode={hasSignal ? setColorMode : undefined}
+          coverage={coverageView}
+          onCoverage={setCoverageView}
+          heatSignal={heatSignal}
+          band={band}
+          onBand={setBand}
+        />
+      )}
     </div>
   )
 }

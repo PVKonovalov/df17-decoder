@@ -7,8 +7,19 @@ const connLabel: Record<ConnState, string> = {
   down: 'down',
 }
 
-/** Header shows aircraft counts, message rate, receiver source status and the /api/ws connection state. */
-export function Header({ state }: { state: State }) {
+/** PanelToggles are the on/off switches of the optional panels; each is shown when its setter is given. */
+export interface PanelToggles {
+  table: boolean
+  onTable?: (on: boolean) => void
+  legend: boolean
+  onLegend?: (on: boolean) => void
+}
+
+/**
+ * Header shows aircraft counts, message rate, receiver source status and the /api/ws connection state, and the
+ * switches that show or hide the aircraft table and the map legend.
+ */
+export function Header({ state, panels }: { state: State; panels?: PanelToggles }) {
   const { aircraft, stats, conn } = state
   let withPos = 0
   for (const a of aircraft.values()) {
@@ -53,6 +64,27 @@ export function Header({ state }: { state: State }) {
           </dd>
         </div>
       </dl>
+      {panels && (
+        <div className="header-panels" role="group" aria-label="Show panels">
+          {panels.onTable && <PanelButton label="Table" on={panels.table} onChange={panels.onTable} />}
+          {panels.onLegend && <PanelButton label="Legend" on={panels.legend} onChange={panels.onLegend} />}
+        </div>
+      )}
     </header>
+  )
+}
+
+function PanelButton({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      title={`${on ? 'Hide' : 'Show'} the ${label.toLowerCase()}`}
+      onClick={() => {
+        onChange(!on)
+      }}
+    >
+      {label}
+    </button>
   )
 }

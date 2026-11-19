@@ -12,3 +12,7 @@ Candidate improvements, roughly by value. Move items to RELEASE.md when done.
 ## Housekeeping
 
 - [ ] **CI:** GitHub Actions running `make lint test` on push and pull requests.
+
+## UI
+- Display version 
+-

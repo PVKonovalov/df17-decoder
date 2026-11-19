@@ -49,3 +49,8 @@ export function useCoverageView(): [CoverageView, (v: CoverageView) => void] {
 export function useHeatBand(): [HeatBand, (b: HeatBand) => void] {
   return useStored<HeatBand>('df17.heatBand', (raw) => BANDS.find((b) => b === raw) ?? 'all')
 }
+
+/** usePanel returns whether a UI panel (the aircraft table, the map legend) is shown, remembered per browser (shown by default). */
+export function usePanel(name: 'table' | 'legend'): [boolean, (on: boolean) => void] {
+  return useStored<boolean>(`df17.show.${name}`, (raw) => raw !== 'false')
+}
