@@ -91,7 +91,7 @@ restarts it on failure (not on a config error, exit code 2). On the receiver, fo
 dump1090-fa:
 
 ```sh
-sudo install -m 755 dist/df17-decoder-v1.1.0-linux-avr64 /usr/local/bin/df17-decoder
+sudo install -m 755 dist/df17-decoder-v1.1.2-linux-amd64 /usr/local/bin/df17-decoder
 sudo install -D -m 644 config/config.yaml /etc/df17-decoder/config.yaml
 sudo install -m 644 deploy/df17-decoder.service /etc/systemd/system/
 sudo systemctl daemon-reload
