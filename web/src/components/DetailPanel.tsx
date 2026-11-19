@@ -45,6 +45,8 @@ export function detailRows(a: Aircraft): [string, ReactNode][] {
     ['Heading', fixed(a.heading, 1, '°')],
     ['IAS', a.ias === undefined ? undefined : `${a.ias} kt`],
     ['TAS', a.tas === undefined ? undefined : `${a.tas} kt`],
+    ['Mach', fixed(a.mach, 3)],
+    ['Roll', a.roll === undefined ? undefined : `${Math.abs(a.roll).toFixed(1)}° ${a.roll < 0 ? 'left' : a.roll > 0 ? 'right' : ''}`.trimEnd()],
     ['Vertical rate', a.verticalRate === undefined ? undefined : `${fmtVerticalRate(a.verticalRate)} ft/min`],
     ['Selected altitude', selectedAlt(a)],
     ['Selected heading', fixed(a.selectedHeading, 1, '°')],

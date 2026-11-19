@@ -2,11 +2,6 @@
 
 Candidate improvements, roughly by value. Move items to RELEASE.md when done.
 
-## Decoding
-
-- [ ] **More Comm-B registers:** BDS 4,0 (selected altitude), 5,0 (roll, track, ground speed, TAS), 6,0 (heading,
-      IAS, Mach, vertical rate) for Mode-S-only aircraft. Only BDS 2,0 (callsign) is decoded today.
-
 ## Data quality
 
 - [ ] **Full ICAO country table:** about 200 allocations from ICAO Annex 10 Vol III; `internal/tracker/country.go`

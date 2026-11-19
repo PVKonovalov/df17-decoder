@@ -17,6 +17,7 @@ type Surveillance struct {
 	Alert    bool   // FS alert bit: squawk recently changed or emergency
 	SPI      bool   // FS special position identification
 	BDS20    string // callsign from a Comm-B BDS 2,0 reply (DF20/21), "" otherwise
+	CommB    *CommB // BDS 4,0/5,0/6,0 inferred from a DF20/21 MB field; nil when none fits
 }
 
 // decodeAllCall decodes DF11: CA 6–8, AA 9–32, PI 33–56. The remainder must be ≤ 0x7F (interrogator code).
@@ -71,9 +72,14 @@ func decodeSurveillance(msg []byte, m Message) (Message, error) {
 		}
 	}
 
-	if (m.DF == 20 || m.DF == 21) && bits(msg, 33, 8) == 0x20 {
-		if cs, err := decodeCallsign(msg); err == nil {
-			s.BDS20 = cs
+	if m.DF == 20 || m.DF == 21 {
+		if bits(msg, 33, 8) == 0x20 {
+			if cs, err := decodeCallsign(msg); err == nil {
+				s.BDS20 = cs
+			}
+		}
+		if s.BDS20 == "" {
+			s.CommB = inferCommB(msg, s.Altitude)
 		}
 	}
 

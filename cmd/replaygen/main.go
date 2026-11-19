@@ -44,6 +44,7 @@ type aircraft struct {
 	vr         float64 // ft/min
 	turn       float64 // degrees/s
 	emergency  bool
+	ehs        bool    // Mode-S-only aircraft that answers Comm-B (BDS 4,0/5,0/6,0) interrogations
 	ground     bool    // taxiing: sends surface positions and stays near home
 	homeLat    float64 // airfield the taxiing aircraft stays around
 	homeLon    float64
@@ -106,6 +107,7 @@ func newFleet(o options, r *rand.Rand) []*aircraft {
 			a.alt = 1000 + r.Float64()*7000
 			a.gs = 90 + r.Float64()*60
 			a.vr = []float64{0, 0, 500, -500}[r.IntN(4)]
+			a.ehs = r.IntN(2) == 0
 		}
 		fleet[i] = a
 	}
@@ -190,6 +192,19 @@ func (a *aircraft) selectedAltitude() float64 {
 	return math.Round(a.alt/100) * 100
 }
 
+// commB is the MB field of the aircraft's Comm-B reply on tick n, rotating through BDS 4,0, 5,0 and 6,0.
+// Without wind, TAS equals ground speed; IAS and Mach are rough low-altitude approximations.
+func (a *aircraft) commB(n int) uint64 {
+	switch (n / 2) % 3 {
+	case 0:
+		return bds40(a.selectedAltitude())
+	case 1:
+		roll := math.Atan(a.turn*math.Pi/180*a.gs*0.5144/9.81) * 180 / math.Pi
+		return bds50(roll, a.track, a.gs, a.gs, a.turn)
+	}
+	return bds60(a.track, a.gs*(1-a.alt/100000), a.gs/661, a.vr)
+}
+
 // frames returns the frames the aircraft transmits on tick n.
 func (a *aircraft) frames(n int) [][]byte {
 	if n < a.start || n >= a.end {
@@ -226,6 +241,9 @@ func (a *aircraft) frames(n int) [][]byte {
 		out = append(out, allCall(a.icao))
 	case 1, 3:
 		out = append(out, altitudeReply(a.icao, a.alt))
+		if a.ehs {
+			out = append(out, commBReply(a.icao, a.alt, a.commB(n)))
+		}
 	case 2:
 		out = append(out, identityReply(a.icao, a.squawk))
 	}
@@ -282,7 +300,7 @@ func main() {
 	flag.Float64Var(&o.lat, "lat", 25.07, "receiver latitude")
 	flag.Float64Var(&o.lon, "lon", 22.87, "receiver longitude")
 	flag.IntVar(&o.count, "n", 150, "number of aircraft")
-	flag.Float64Var(&o.modeSOnly, "modes-only", 0.15, "fraction of aircraft without ADS-B (DF4/5/11 only)")
+	flag.Float64Var(&o.modeSOnly, "modes-only", 0.15, "fraction of aircraft without ADS-B (DF4/5/11, half of them also DF20 Comm-B)")
 	flag.Float64Var(&o.duration, "duration", 600, "capture length, seconds")
 	flag.Float64Var(&o.maxRangeNm, "range", 150, "radius the traffic stays within, nm")
 	flag.Uint64Var(&o.seed, "seed", 1, "random seed")

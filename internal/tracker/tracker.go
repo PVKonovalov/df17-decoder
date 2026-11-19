@@ -26,6 +26,8 @@ type entry struct {
 	a              Aircraft
 	cpr            CPRState
 	altitudeLogged bool
+	velocityTime   time.Time // data time of the last ADS-B velocity (TC 19)
+	commBTime      time.Time // data time of the last accepted Comm-B 5,0 or 6,0
 }
 
 // Tracker keeps the live aircraft table. Update is called by one decoding goroutine; Snapshot, Get and Len
@@ -151,6 +153,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	}
 	if v := m.Velocity; v != nil {
 		t.updateVelocity(a, v)
+		e.velocityTime = m.Time
 	}
 	if s := m.AircraftStatus; s != nil {
 		em := s.Emergency
@@ -185,6 +188,9 @@ func (t *Tracker) updateSurveillance(e *entry, m modes.Message, s *modes.Surveil
 	if s.Squawk != "" {
 		t.setSquawk(a, s.Squawk, true)
 	}
+	if c := s.CommB; c != nil {
+		t.updateCommB(e, m.Time, c)
+	}
 	if s.Altitude != nil {
 		a.AltBaro = s.Altitude
 		attrs := []any{"icao", a.ICAO, "df", m.DF, "altitude", *s.Altitude}
@@ -199,6 +205,145 @@ func (t *Tracker) updateSurveillance(e *entry, m modes.Message, s *modes.Surveil
 		}
 	}
 }
+
+// commBFresh is how recent ADS-B velocity or an accepted Comm-B report must be to serve as a cross-check reference.
+const commBFresh = 30 * time.Second
+
+// commBMatch compares an inferred register with the aircraft's recent state: agree means at least one value could
+// be compared and all compared values are close; contradict means some value is far off.
+type commBMatch struct{ agree, contradict bool }
+
+func (m *commBMatch) compare(close bool) {
+	if close {
+		m.agree = true
+	} else {
+		m.contradict = true
+	}
+}
+
+// updateCommB applies inferred Comm-B registers received at data time at. A 5,0 or 6,0 report that contradicts
+// recent ADS-B velocity or the previous Comm-B report (ground speed or IAS by more than 30 kt, track or heading by
+// more than 20°, vertical rates over 1000 ft/min in opposite directions) is counted as rejected. An ambiguous reply is applied
+// only when exactly one candidate agrees with the aircraft's recent state, otherwise it is counted and dropped.
+// While ADS-B velocity is fresh it owns ground speed, track and vertical rate.
+func (t *Tracker) updateCommB(e *entry, at time.Time, c *modes.CommB) {
+	a := &e.a
+	adsbFresh := !e.velocityTime.IsZero() && at.Sub(e.velocityTime) <= commBFresh
+	refFresh := adsbFresh || (!e.commBTime.IsZero() && at.Sub(e.commBTime) <= commBFresh)
+
+	var m40, m50, m60 commBMatch
+	if b := c.BDS40; b != nil {
+		if b.MCPAltitude != nil && a.SelectedAlt != nil {
+			m40.compare(*b.MCPAltitude == *a.SelectedAlt)
+		}
+		if b.BaroSetting != nil && a.BaroSetting != nil {
+			m40.compare(math.Abs(*b.BaroSetting-*a.BaroSetting) < 1)
+		}
+	}
+	if b := c.BDS50; b != nil && refFresh {
+		if b.GroundSpeed != nil && a.GroundSpeed != nil {
+			m50.compare(math.Abs(*b.GroundSpeed-*a.GroundSpeed) <= 30)
+		}
+		if b.Track != nil && a.Track != nil {
+			m50.compare(angleDiff(*b.Track, *a.Track) <= 20)
+		}
+	}
+	vr60 := (*int)(nil)
+	if b := c.BDS60; b != nil {
+		vr60 = b.VerticalRateBaro
+		if vr60 == nil {
+			vr60 = b.VerticalRateINS
+		}
+		if refFresh {
+			if vr60 != nil && a.VerticalRate != nil && min(abs(*vr60), abs(*a.VerticalRate)) > 1000 {
+				m60.compare(*vr60**a.VerticalRate > 0)
+			}
+			if b.IAS != nil && a.IAS != nil {
+				m60.compare(abs(*b.IAS-*a.IAS) <= 30)
+			}
+			if b.Heading != nil && a.Heading != nil {
+				m60.compare(angleDiff(*b.Heading, *a.Heading) <= 20)
+			}
+		}
+	}
+
+	use40, use50, use60 := c.BDS40 != nil, c.BDS50 != nil, c.BDS60 != nil
+	if c.Ambiguous {
+		agree := func(m commBMatch) bool { return m.agree && !m.contradict }
+		use40, use50, use60 = use40 && agree(m40), use50 && agree(m50), use60 && agree(m60)
+		n := 0
+		for _, u := range []bool{use40, use50, use60} {
+			if u {
+				n++
+			}
+		}
+		if n != 1 {
+			t.opt.Stats.CommBAmbiguous.Add(1)
+			return
+		}
+	} else if m50.contradict || m60.contradict {
+		t.opt.Stats.CommBRejected.Add(1)
+		t.opt.Logger.Debug("comm-b rejected", "icao", a.ICAO, "bds50", c.BDS50 != nil, "bds60", c.BDS60 != nil)
+		return
+	}
+
+	switch {
+	case use40:
+		b := c.BDS40
+		switch {
+		case b.MCPAltitude != nil:
+			a.SelectedAlt, a.SelectedAltSource = b.MCPAltitude, "mcp"
+		case b.FMSAltitude != nil:
+			a.SelectedAlt, a.SelectedAltSource = b.FMSAltitude, "fms"
+		}
+		if b.BaroSetting != nil {
+			a.BaroSetting = b.BaroSetting
+		}
+		t.opt.Logger.Debug("comm-b 4,0", "icao", a.ICAO, "selectedAlt", val(a.SelectedAlt), "baro", val(b.BaroSetting))
+	case use50:
+		b := c.BDS50
+		if b.Roll != nil {
+			a.Roll = new(round(*b.Roll, 1))
+		}
+		if b.TAS != nil {
+			a.TAS = b.TAS
+		}
+		if !adsbFresh {
+			if b.GroundSpeed != nil {
+				a.GroundSpeed = new(round(*b.GroundSpeed, 1))
+			}
+			if b.Track != nil {
+				a.Track = new(round(*b.Track, 1))
+			}
+		}
+		e.commBTime = at
+		t.opt.Logger.Debug("comm-b 5,0", "icao", a.ICAO, "roll", val(a.Roll), "track", val(b.Track), "groundSpeed", val(b.GroundSpeed), "tas", val(b.TAS))
+	case use60:
+		b := c.BDS60
+		if b.Heading != nil {
+			a.Heading = new(round(*b.Heading, 1))
+		}
+		if b.IAS != nil {
+			a.IAS = b.IAS
+		}
+		if b.Mach != nil {
+			a.Mach = new(round(*b.Mach, 3))
+		}
+		if vr60 != nil && !adsbFresh {
+			a.VerticalRate = vr60
+		}
+		e.commBTime = at
+		t.opt.Logger.Debug("comm-b 6,0", "icao", a.ICAO, "heading", val(a.Heading), "ias", val(b.IAS), "mach", val(a.Mach), "verticalRate", val(vr60))
+	}
+}
+
+// angleDiff is the absolute difference between two bearings in degrees, 0–180.
+func angleDiff(x, y float64) float64 {
+	d := math.Mod(math.Abs(x-y), 360)
+	return min(d, 360-d)
+}
+
+func abs(v int) int { return max(v, -v) }
 
 func (t *Tracker) updateVelocity(a *Aircraft, v *modes.Velocity) {
 	if v.GroundSpeed != nil {

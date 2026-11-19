@@ -62,6 +62,19 @@ func TestEncoders_RoundTrip(t *testing.T) {
 		}
 	}
 
+	s := decode(t, commBReply(icao, 4500, bds40(6000))).Surveillance
+	if s == nil || *s.Altitude != 4500 || s.CommB == nil || s.CommB.BDS40 == nil || *s.CommB.BDS40.MCPAltitude != 6000 || *s.CommB.BDS40.BaroSetting != 1013.2 {
+		t.Errorf("BDS 4,0: %+v", s)
+	}
+	c := decode(t, commBReply(icao, 4500, bds50(-3.2, 271, 120, 122, -0.25))).Surveillance.CommB
+	if b := c.BDS50; b == nil || math.Abs(*b.Roll+3.2) > 0.1 || math.Abs(*b.Track-271) > 0.2 || *b.GroundSpeed != 120 || *b.TAS != 122 || *b.TrackRate != -0.25 {
+		t.Errorf("BDS 5,0: %+v", c)
+	}
+	c = decode(t, commBReply(icao, 4500, bds60(15, 110, 0.18, -640))).Surveillance.CommB
+	if b := c.BDS60; b == nil || math.Abs(*b.Heading-15) > 0.2 || *b.IAS != 110 || math.Abs(*b.Mach-0.18) > 0.004 || *b.VerticalRateBaro != -640 {
+		t.Errorf("BDS 6,0: %+v", c)
+	}
+
 	if m := decode(t, allCall(icao)); m.DF != 11 || m.ICAO != icao {
 		t.Errorf("all-call: DF%d %06X", m.DF, m.ICAO)
 	}

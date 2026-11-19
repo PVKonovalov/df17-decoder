@@ -14,6 +14,8 @@
   "tas": 240,
   "heading": 121.7,
   "verticalRate": -640,
+  "roll": -12.3,
+  "mach": 0.784,
   "onGround": false,
   "selectedAlt": 4992,
   "selectedAltSource": "mcp",

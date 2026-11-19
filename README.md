@@ -15,7 +15,12 @@ What it decodes:
   - DF11 all-call replies.
   - DF0/4/16/20 altitude and DF5/21 squawk, accepted via address/parity only for addresses already seen in a
     valid DF11/17/18 frame.
-  - BDS 2,0 callsign in Comm-B replies.
+  - Comm-B replies (DF20/21): BDS 2,0 callsign, and Enhanced Mode S BDS 4,0 (selected altitude, altimeter),
+    5,0 (roll, track, ground speed, TAS) and 6,0 (heading, IAS, Mach, vertical rate). These registers aren't
+    labelled in the reply, so each is inferred from its layout, value ranges and IAS/Mach consistency at the
+    reply's altitude. A reply that fits several registers is used only when exactly one agrees with the
+    aircraft's recent ADS-B or Comm-B data, and a report that contradicts that data is rejected.
+    `commBAmbiguous` and `commBRejected` in `/api/stats` count both cases.
 - **Input:** AVR text (port 30002), Beast binary with signal level as RSSI (port 30005), or AVR file replay.
 
 The backend uses the Go standard library plus `gopkg.in/yaml.v3` and `github.com/gorilla/websocket`, and requires
@@ -176,6 +181,8 @@ $ curl -s localhost:8080/api/stats
   "addressParityDrops": 1,
   "positions": 2,
   "cprRejected": 0,
+  "commBAmbiguous": 0,
+  "commBRejected": 0,
   "aircraft": 5
 }
 ```
@@ -197,7 +204,7 @@ there's nothing else to deploy.
 - **New aircraft:** rows of aircraft first seen in the last 30 s are highlighted in amber, fading out, and
   their map marker pulses briefly when it appears.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
-  known field (including the selected altitude and heading, altimeter setting and autopilot modes), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+  known field (including the selected altitude and heading, altimeter setting, autopilot modes, roll and Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
   shows the aircraft count, messages per second, the receiver source status and the connection state. The
   page reconnects with backoff by itself.
@@ -270,7 +277,7 @@ make busy         # only regenerates testdata/busy.txt
 
 `cmd/replaygen` writes the synthetic capture around the receiver in `config/demo.yaml` (`-config`). By default
 40% of the aircraft arrive during the replay, with airliners entering at the edge of coverage, so new rows keep
-appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only, one squawks 7700, and 6 more
+appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only (half of them also answer Comm-B with BDS 4,0/5,0/6,0), one squawks 7700, and 6 more
 taxi at an airfield 6 nm north-east of the receiver (surface positions, "GND" on the map).
 Flags such as `-n`, `-taxiing`, `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon`
 change this (`go run ./cmd/replaygen -h`).

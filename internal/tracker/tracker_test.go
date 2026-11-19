@@ -257,3 +257,91 @@ func TestTracker_TargetState(t *testing.T) {
 		t.Error("snapshot shares the autopilot modes slice")
 	}
 }
+
+func commBMsg(icao uint32, at time.Time, c *modes.CommB) modes.Message {
+	return modes.Message{DF: 20, ICAO: icao, Time: at, Surveillance: &modes.Surveillance{CommB: c}}
+}
+
+func TestTracker_CommBModeSOnly(t *testing.T) {
+	tr, _, st := newTestTracker(t)
+	const icao = 0x738ABC
+	tr.Update(commBMsg(icao, t0, &modes.CommB{BDS40: &modes.BDS40{FMSAltitude: new(35008), BaroSetting: new(1013.2)}}), nil)
+	tr.Update(commBMsg(icao, t0, &modes.CommB{BDS50: &modes.BDS50{Roll: new(-12.3), Track: new(90.2), GroundSpeed: new(420.0), TAS: new(440)}}), nil)
+	tr.Update(commBMsg(icao, t0, &modes.CommB{BDS60: &modes.BDS60{Heading: new(85.0), IAS: new(280), Mach: new(0.784), VerticalRateINS: new(-1024)}}), nil)
+	a, _ := tr.Get(icao)
+	if *a.SelectedAlt != 35008 || a.SelectedAltSource != "fms" || *a.BaroSetting != 1013.2 {
+		t.Errorf("4,0: alt=%v src=%q baro=%v", a.SelectedAlt, a.SelectedAltSource, a.BaroSetting)
+	}
+	if *a.Roll != -12.3 || *a.Track != 90.2 || *a.GroundSpeed != 420 || *a.TAS != 440 {
+		t.Errorf("5,0: roll=%v trk=%v gs=%v tas=%v", *a.Roll, *a.Track, *a.GroundSpeed, *a.TAS)
+	}
+	if *a.Heading != 85 || *a.IAS != 280 || *a.Mach != 0.784 || *a.VerticalRate != -1024 {
+		t.Errorf("6,0: hdg=%v ias=%v mach=%v vr=%v", *a.Heading, *a.IAS, *a.Mach, *a.VerticalRate)
+	}
+
+	// a mis-inferred 5,0 right after: 200 kt off the previous report
+	tr.Update(commBMsg(icao, t0.Add(5*time.Second), &modes.CommB{BDS50: &modes.BDS50{GroundSpeed: new(220.0), Track: new(91.0)}}), nil)
+	// and a 6,0 with the opposite vertical rate
+	tr.Update(commBMsg(icao, t0.Add(5*time.Second), &modes.CommB{BDS60: &modes.BDS60{VerticalRateBaro: new(2048)}}), nil)
+	tr.Update(commBMsg(icao, t0.Add(5*time.Second), &modes.CommB{Ambiguous: true}), nil)
+	if a, _ := tr.Get(icao); *a.GroundSpeed != 420 || *a.VerticalRate != -1024 {
+		t.Errorf("rejected reports applied: gs=%v vr=%v", *a.GroundSpeed, *a.VerticalRate)
+	}
+	if st.CommBRejected.Load() != 2 || st.CommBAmbiguous.Load() != 1 {
+		t.Errorf("rejected=%d ambiguous=%d", st.CommBRejected.Load(), st.CommBAmbiguous.Load())
+	}
+
+	// once the reference is older than 30 s, a new report is accepted again
+	tr.Update(commBMsg(icao, t0.Add(40*time.Second), &modes.CommB{BDS50: &modes.BDS50{GroundSpeed: new(220.0)}}), nil)
+	if a, _ := tr.Get(icao); *a.GroundSpeed != 220 {
+		t.Errorf("stale reference: gs=%v, want 220", *a.GroundSpeed)
+	}
+}
+
+func TestTracker_CommBWithADSB(t *testing.T) {
+	tr, _, st := newTestTracker(t)
+	feed(t, tr, t0, frameVelocity1) // 485020: GS 159.2 kt, track 182.9°, VR -832 ft/min
+	before, _ := tr.Get(0x485020)
+
+	tr.Update(commBMsg(0x485020, t0.Add(time.Second), &modes.CommB{BDS50: &modes.BDS50{Roll: new(1.4), Track: new(185.0), GroundSpeed: new(170.0), TAS: new(180)}}), nil)
+	a, _ := tr.Get(0x485020)
+	if *a.GroundSpeed != *before.GroundSpeed || *a.Track != *before.Track || *a.Roll != 1.4 || *a.TAS != 180 {
+		t.Errorf("ADS-B must own GS/track; Comm-B adds roll and TAS: gs=%v trk=%v roll=%v tas=%v", *a.GroundSpeed, *a.Track, *a.Roll, *a.TAS)
+	}
+
+	tr.Update(commBMsg(0x485020, t0.Add(time.Second), &modes.CommB{BDS50: &modes.BDS50{Roll: new(20.0), Track: new(300.0), GroundSpeed: new(160.0)}}), nil)
+	tr.Update(commBMsg(0x485020, t0.Add(time.Second), &modes.CommB{BDS60: &modes.BDS60{IAS: new(160), VerticalRateBaro: new(-800)}}), nil)
+	tr.Update(commBMsg(0x485020, t0.Add(2*time.Second), &modes.CommB{BDS60: &modes.BDS60{IAS: new(250)}}), nil)
+	if a, _ := tr.Get(0x485020); *a.Roll != 1.4 || *a.IAS != 160 || *a.VerticalRate != -832 {
+		t.Errorf("inconsistent reports applied or ADS-B VR overridden: roll=%v ias=%v vr=%v", *a.Roll, *a.IAS, *a.VerticalRate)
+	}
+	if st.CommBRejected.Load() != 2 {
+		t.Errorf("rejected = %d, want 2", st.CommBRejected.Load())
+	}
+}
+
+func TestTracker_CommBAmbiguousResolvedByReference(t *testing.T) {
+	tr, _, st := newTestTracker(t)
+	const icao = 0x738ABC
+	tr.Update(commBMsg(icao, t0, &modes.CommB{BDS50: &modes.BDS50{Track: new(90.0), GroundSpeed: new(120.0)}}), nil)
+
+	// fits 5,0 (consistent with the last report) and 6,0 (no reference yet): taken as 5,0
+	both := func(gs float64) *modes.CommB {
+		return &modes.CommB{Ambiguous: true, BDS50: &modes.BDS50{Track: new(92.0), GroundSpeed: new(gs), Roll: new(3.0)},
+			BDS60: &modes.BDS60{Heading: new(10.0), IAS: new(400)}}
+	}
+	tr.Update(commBMsg(icao, t0.Add(2*time.Second), both(124)), nil)
+	if a, _ := tr.Get(icao); *a.GroundSpeed != 124 || *a.Roll != 3 || a.IAS != nil {
+		t.Errorf("resolved as 5,0: gs=%v roll=%v ias=%v", *a.GroundSpeed, *a.Roll, a.IAS)
+	}
+	// neither candidate agrees: dropped
+	tr.Update(commBMsg(icao, t0.Add(4*time.Second), both(300)), nil)
+	if a, _ := tr.Get(icao); *a.GroundSpeed != 124 || st.CommBAmbiguous.Load() != 1 {
+		t.Errorf("unresolved: gs=%v ambiguous=%d", *a.GroundSpeed, st.CommBAmbiguous.Load())
+	}
+	// no reference at all: dropped
+	tr.Update(commBMsg(0x738ABD, t0, both(124)), nil)
+	if a, _ := tr.Get(0x738ABD); a.GroundSpeed != nil || st.CommBAmbiguous.Load() != 2 {
+		t.Errorf("no reference: gs=%v ambiguous=%d", a.GroundSpeed, st.CommBAmbiguous.Load())
+	}
+}

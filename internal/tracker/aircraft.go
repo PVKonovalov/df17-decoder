@@ -25,6 +25,8 @@ type Aircraft struct {
 	TAS          *int     `json:"tas,omitempty"`          // kt
 	Heading      *float64 `json:"heading,omitempty"`      // degrees
 	VerticalRate *int     `json:"verticalRate,omitempty"` // ft/min
+	Roll         *float64 `json:"roll,omitempty"`         // degrees, positive = right wing down (Comm-B 5,0)
+	Mach         *float64 `json:"mach,omitempty"`         // Comm-B 6,0
 	OnGround     *bool    `json:"onGround,omitempty"`
 
 	SelectedAlt       *int     `json:"selectedAlt,omitempty"`       // ft, from TC 29

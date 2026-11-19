@@ -39,6 +39,9 @@ describe('DetailPanel', () => {
     expect(rows['Selected heading']).toBe('120.2°')
     expect(rows.Altimeter).toBe('1013.6 hPa')
     expect(rows.Autopilot).toBe('AP · VNAV · LNAV · TCAS')
+    expect(rows.Mach).toBe('0.784')
+    expect(rows.Roll).toBe('12.3° left')
+    expect(Object.fromEntries(detailRows({ ...minimal, roll: 0 })).Roll).toBe('0.0°')
   })
 
   it('shows the autopilot row when modes are known but none is engaged', () => {

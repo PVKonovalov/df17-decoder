@@ -208,6 +208,8 @@ type statsResponse struct {
 	AddressParityDrops uint64         `json:"addressParityDrops"`
 	Positions          uint64         `json:"positions"`
 	CPRRejected        uint64         `json:"cprRejected"`
+	CommBAmbiguous     uint64         `json:"commBAmbiguous"`
+	CommBRejected      uint64         `json:"commBRejected"`
 	Aircraft           int            `json:"aircraft"`
 }
 
@@ -239,6 +241,8 @@ func (s *server) statsSnapshot() statsResponse {
 		AddressParityDrops: st.AddressParityDrops,
 		Positions:          st.Positions,
 		CPRRejected:        st.CPRRejected,
+		CommBAmbiguous:     st.CommBAmbiguous,
+		CommBRejected:      st.CommBRejected,
 		Aircraft:           s.Tracker.Len(),
 	}
 	if !src.LastFrame.IsZero() {

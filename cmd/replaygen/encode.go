@@ -182,3 +182,47 @@ func targetState(icao uint32, selectedAltFt, headingDeg float64) []byte {
 		[2]uint64{1, 1}, [2]uint64{1, 1},
 	))
 }
+
+// commBReply: DF20 (FS 0, altitude ft) carrying a 56-bit Comm-B MB field, address/parity.
+func commBReply(icao uint32, ft float64, mbField uint64) []byte {
+	head := uint32(20<<27) | ac13(ft)
+	msg := []byte{byte(head >> 24), byte(head >> 16), byte(head >> 8), byte(head), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	for i := range 7 {
+		msg[4+i] = byte(mbField >> (48 - 8*i))
+	}
+	setParity(msg, icao)
+	return msg
+}
+
+// twos encodes v as a sign bit plus n bits, two's complement.
+func twos(v float64, n int) uint64 {
+	return uint64(int64(math.Round(v))) & (1<<(n+1) - 1)
+}
+
+// bds40: MCP selected altitude (16 ft steps) and QNH 1013.2 hPa.
+func bds40(selectedFt float64) uint64 {
+	return fields(56, [2]uint64{1, 1}, [2]uint64{uint64(math.Round(selectedFt / 16)), 12}, [2]uint64{0, 13},
+		[2]uint64{1, 1}, [2]uint64{2132, 12})
+}
+
+// bds50: roll (°), true track (°), ground speed and TAS (kt), track rate (°/s).
+func bds50(roll, trackDeg, gs, tas, rate float64) uint64 {
+	trk := math.Mod(trackDeg+540, 360) - 180
+	return fields(56,
+		[2]uint64{1, 1}, [2]uint64{twos(roll*256/45, 9), 10},
+		[2]uint64{1, 1}, [2]uint64{twos(trk*512/90, 10), 11},
+		[2]uint64{1, 1}, [2]uint64{uint64(math.Round(gs / 2)), 10},
+		[2]uint64{1, 1}, [2]uint64{twos(rate*256/8, 9), 10},
+		[2]uint64{1, 1}, [2]uint64{uint64(math.Round(tas / 2)), 10})
+}
+
+// bds60: magnetic heading (°), IAS (kt), Mach, barometric and inertial vertical rate (ft/min).
+func bds60(headingDeg, ias, mach, vr float64) uint64 {
+	hdg := math.Mod(headingDeg+540, 360) - 180
+	return fields(56,
+		[2]uint64{1, 1}, [2]uint64{twos(hdg*512/90, 10), 11},
+		[2]uint64{1, 1}, [2]uint64{uint64(math.Round(ias)), 10},
+		[2]uint64{1, 1}, [2]uint64{uint64(math.Round(mach * 512 / 2.048)), 10},
+		[2]uint64{1, 1}, [2]uint64{twos(vr/32, 9), 10},
+		[2]uint64{1, 1}, [2]uint64{twos(vr/32, 9), 10})
+}

@@ -19,6 +19,8 @@ export interface Aircraft {
   tas?: number // kt
   heading?: number // degrees
   verticalRate?: number // ft/min
+  roll?: number // degrees, positive = right wing down (Comm-B 5,0)
+  mach?: number // Comm-B 6,0
   onGround?: boolean
 
   selectedAlt?: number // ft, autopilot/FMS target (ADS-B TC 29)
@@ -60,6 +62,8 @@ export const aircraftKeys = {
   tas: true,
   heading: true,
   verticalRate: true,
+  roll: true,
+  mach: true,
   onGround: true,
   selectedAlt: true,
   selectedAltSource: true,
@@ -117,6 +121,8 @@ export interface Stats {
   addressParityDrops: number
   positions: number
   cprRejected: number
+  commBAmbiguous: number // DF20/21 replies that fit more than one Comm-B register
+  commBRejected: number // inferred Comm-B reports inconsistent with the aircraft's recent state
   aircraft: number
 }
 

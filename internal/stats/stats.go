@@ -22,6 +22,8 @@ type Stats struct {
 	AddressParityDrops atomic.Uint64
 	Positions          atomic.Uint64
 	CPRRejected        atomic.Uint64
+	CommBAmbiguous     atomic.Uint64 // DF20/21 MB fields that fit more than one register
+	CommBRejected      atomic.Uint64 // inferred registers inconsistent with the aircraft's recent state
 
 	mu      sync.Mutex
 	perDF   map[int]uint64
@@ -67,6 +69,8 @@ type Snapshot struct {
 	AddressParityDrops uint64
 	Positions          uint64
 	CPRRejected        uint64
+	CommBAmbiguous     uint64
+	CommBRejected      uint64
 }
 
 // Snapshot returns a consistent-enough copy of all counters at wall time now.
@@ -82,6 +86,8 @@ func (s *Stats) Snapshot(now time.Time) Snapshot {
 		AddressParityDrops: s.AddressParityDrops.Load(),
 		Positions:          s.Positions.Load(),
 		CPRRejected:        s.CPRRejected.Load(),
+		CommBAmbiguous:     s.CommBAmbiguous.Load(),
+		CommBRejected:      s.CommBRejected.Load(),
 	}
 	cur := now.Unix()
 	var sum uint64
