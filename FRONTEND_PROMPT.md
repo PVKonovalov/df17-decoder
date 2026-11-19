@@ -5,7 +5,8 @@
 Read `AGENT_PROMPT.md` and `CLAUDE.md` first. This repo is a Go service that decodes Mode S / ADS-B frames from my home receiver (RTL-SDR Blog V4 + dump1090-fa, near Rosh HaAyin, Israel, under the Ben Gurion approach paths). It keeps a live aircraft table and serves it over an HTTP/JSON API:
 
 - `GET /api/aircraft`, `GET /api/aircraft/{icao}`: aircraft state, camelCase JSON. Unknown fields are left out, never sent as zero.
-- `GET /api/stream`: Server-Sent Events, a full aircraft snapshot every `api.stream_interval` (1 s by default)
+- `GET /api/stream`: Server-Sent Events, a full aircraft snapshot every `api.streamInterval` (1 s by default). Kept for curl/tools; the UI doesn't use it.
+- `GET /api/ws`: WebSocket (gorilla/websocket), the UI's only data channel. JSON messages `{"type", "data"}`: `receiver` once on connect, then `aircraft` (full snapshot) followed by `stats` (the `/api/stats` body) immediately and every `api.streamInterval`. Same-origin only. On server shutdown it closes with code 1001.
 - `GET /api/stats`: uptime, source connection status, frame counters, messages per second, aircraft count
 - `GET /healthz`
 
@@ -31,9 +32,8 @@ If the backend API from `AGENT_PROMPT.md` isn't finished yet, stop and tell me i
 
 ## Data flow
 
-- On load, fetch `/api/receiver` once, then subscribe to `/api/stream` with `EventSource`. Don't poll for aircraft.
-- Show the stream state (connected / reconnecting / down) in the header. `EventSource` reconnects by itself; handle the error and open events to update the indicator.
-- Poll `/api/stats` every 5 s for the header numbers.
+- **No polling and no REST fetches.** On load, open a WebSocket to `/api/ws` (same host, `ws:`/`wss:` from `location.protocol`). All data (receiver, aircraft, stats) arrives as pushed messages.
+- Show the connection state (connected / reconnecting / down) in the header. A browser WebSocket doesn't reconnect by itself: reconnect with exponential backoff (1 s to 30 s, reset after a successful open), and show "down" after a few failed attempts. Ignore unknown message types.
 - Keep all aircraft state in one reducer (`useReducer` or a small store hook). Its actions: snapshot received, select aircraft, clear selection, plus trail bookkeeping. The map and table are pure views of that state.
 - Write the API types by hand in `web/src/api/types.ts`. They mirror the Go JSON exactly: camelCase, with optional (`?`) fields for everything Go can leave out. Never assume an optional field is present. A real altitude of `0` is valid, so check `!== undefined`, not truthiness.
 
@@ -59,13 +59,13 @@ If the backend API from `AGENT_PROMPT.md` isn't finished yet, stop and tell me i
 ## Layout
 
 - Desktop: map on the left (~65%) and table on the right, with a resizable splitter if it's cheap to build. Narrow screens: map on top, table below.
-- Header: aircraft count (total / with position), messages per second, source status (from `/api/stats`), stream status.
+- Header: aircraft count (total / with position), messages per second, source status (from the `stats` message), connection status.
 - Units: feet, knots, ft/min, nautical miles. Times are relative ("12 s ago").
 
 ## Dev and build
 
-- `npm run dev` in `web/`, with a Vite proxy forwarding `/api` to `http://localhost:8080` (SSE must stream through the proxy, not be buffered).
-- `npm run build` writes `web/dist`, which `go:embed` picks up.
+- `npm run dev` in `web/`, with a Vite proxy forwarding `/api` to `http://localhost:8080` with `ws: true` and `rewriteWsOrigin: true`, so `/api/ws` upgrades through the proxy and passes the backend's same-origin check.
+- `npm run build` writes `web/dist/app` (gitignored), which `go:embed` picks up; the committed `web/dist/index.html` placeholder is served when it is missing.
 - Add a `Makefile` (or extend an existing one) with these targets:
   - `web`: `npm ci && npm run build` in `web/`
   - `build`: `web`, then `go build ./cmd/df17-decoder`
@@ -84,8 +84,8 @@ If the backend API from `AGENT_PROMPT.md` isn't finished yet, stop and tell me i
 
 Follow the rules in `CLAUDE.md`: ask for my OK before each milestone, and add a line to `RELEASE.md` after each one.
 
-1. Backend: `/api/receiver`, embed + SPA fallback, placeholder `dist`, Makefile, contract fixture and Go test.
-2. Scaffold: Vite/React/TS in `web/`, dev proxy, API types and the Vitest contract test, reducer with the SSE subscription, header with stats and connection status.
+1. Backend: `/api/receiver`, `/api/ws`, embed + SPA fallback, placeholder `dist`, Makefile, contract fixture and Go test.
+2. Scaffold: Vite/React/TS in `web/`, dev proxy, API types and the Vitest contract test, reducer fed by the `/api/ws` WebSocket (with reconnect), header with stats and connection status.
 3. Map: receiver, range rings, aircraft markers with rotation and altitude colors, labels, legend, trails, fading.
 4. Table and interaction: sortable, filterable table, Mode-S-only rows, emergency highlighting, selection synced between map and table, detail panel.
 5. Polish: dark theme, responsive layout, performance check with a busy replay (no marker re-creation, no full table re-render on every tick if avoidable), README section with screenshots and dev/prod instructions.

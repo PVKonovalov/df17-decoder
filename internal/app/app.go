@@ -18,6 +18,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
+	"github.com/PVKonovalov/df17-decoder/web"
 )
 
 const (
@@ -111,6 +112,10 @@ func (s *Service) Run(ctx context.Context) error {
 
 	srv := &http.Server{
 		Handler: api.New(api.Deps{
+			Receiver: api.Receiver{
+				Lat: s.cfg.Receiver.Lat, Lon: s.cfg.Receiver.Lon, MaxRangeNm: s.cfg.Receiver.MaxRangeNm,
+			},
+			UI:             web.Dist(),
 			Tracker:        s.Tracker,
 			Stats:          s.Stats,
 			Source:         s.SourceStats,

@@ -57,6 +57,7 @@ func newFixture(t *testing.T) *fixture {
 
 	f := &fixture{stats: st}
 	f.handler = New(Deps{
+		Receiver:       Receiver{Lat: 32.09, Lon: 34.96, MaxRangeNm: 300},
 		Tracker:        tr,
 		Stats:          st,
 		Source:         func() source.StatsSnapshot { return f.src },

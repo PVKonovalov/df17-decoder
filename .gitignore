@@ -37,3 +37,10 @@ go.work.sum
 
 # Local service config (see config.example.yaml)
 /config/config.yaml
+
+# Web UI: build output (embedded when present); web/dist/index.html is the committed placeholder
+/web/dist/app/
+/web/node_modules/
+
+# Binary built by make build
+/df17-decoder

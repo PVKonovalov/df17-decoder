@@ -4,11 +4,14 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/source"
@@ -19,8 +22,17 @@ import (
 // HealthWindow is how recently the source must have delivered a frame for /healthz to report healthy.
 const HealthWindow = 30 * time.Second
 
+// Receiver is the receiver position served on /api/receiver.
+type Receiver struct {
+	Lat        float64 `json:"lat"`
+	Lon        float64 `json:"lon"`
+	MaxRangeNm float64 `json:"maxRangeNm"`
+}
+
 // Deps are the read-only views the API serves.
 type Deps struct {
+	Receiver       Receiver
+	UI             fs.FS // built web UI served at /; nil disables it
 	Tracker        *tracker.Tracker
 	Stats          *stats.Stats
 	Source         func() source.StatsSnapshot
@@ -46,11 +58,42 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/aircraft/{icao}", s.aircraftOne)
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/stream", s.stream)
+	mux.HandleFunc("GET /api/ws", s.ws)
+	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint: "+r.Method+" "+r.URL.Path)
 	})
+	mux.HandleFunc("/", s.ui)
 	return mux
+}
+
+func (s *server) receiver(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Receiver)
+}
+
+// ui serves files of the embedded UI; GET paths that are not files fall back to index.html (SPA routing).
+// Vite's hashed assets/ files are cached for a year, everything else is revalidated.
+func (s *server) ui(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.UI == nil {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if fi, err := fs.Stat(s.UI, name); name == "" || err != nil || fi.IsDir() {
+		name = "index.html"
+	}
+	if strings.HasPrefix(name, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	http.ServeFileFS(w, r, s.UI, name)
 }
 
 // aircraftList serves GET /api/aircraft[?withPosition=true][&sort=distance|altitude|lastSeen].
@@ -153,6 +196,10 @@ type statsResponse struct {
 }
 
 func (s *server) stats(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.statsSnapshot())
+}
+
+func (s *server) statsSnapshot() statsResponse {
 	now := s.Now()
 	st := s.Stats.Snapshot(now)
 	src := s.Source()
@@ -175,12 +222,19 @@ func (s *server) stats(w http.ResponseWriter, _ *http.Request) {
 		AddressParityDrops: st.AddressParityDrops,
 		Positions:          st.Positions,
 		CPRRejected:        st.CPRRejected,
-		Aircraft:           len(s.Tracker.Snapshot()),
+		Aircraft:           s.Tracker.Len(),
 	}
 	if !src.LastFrame.IsZero() {
 		resp.Source.LastFrame = &src.LastFrame
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return resp
+}
+
+// aircraftByICAO returns the current aircraft sorted by ICAO address.
+func (s *server) aircraftByICAO() []tracker.Aircraft {
+	list := s.Tracker.Snapshot()
+	slices.SortFunc(list, func(a, b tracker.Aircraft) int { return cmp.Compare(a.ICAO, b.ICAO) })
+	return list
 }
 
 // stream serves Server-Sent Events: the full aircraft list (sorted by ICAO) immediately and then every
@@ -195,9 +249,7 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(s.StreamInterval)
 	defer ticker.Stop()
 	for {
-		list := s.Tracker.Snapshot()
-		slices.SortFunc(list, func(a, b tracker.Aircraft) int { return cmp.Compare(a.ICAO, b.ICAO) })
-		data, err := json.Marshal(list)
+		data, err := json.Marshal(s.aircraftByICAO())
 		if err != nil {
 			s.Logger.Error("stream: marshal", "err", err)
 			return

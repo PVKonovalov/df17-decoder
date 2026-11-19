@@ -17,9 +17,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Go project for a Mode S / ADS-B decoder (per README): DF17 decoding (callsign, altitude, CPR position, velocity), Mode S altitude/squawk for non-ADS-B aircraft, an aircraft state table, and a JSON API.
 
-The full spec and milestone plan are in `AGENT_PROMPT.md` (backend) and `FRONTEND_PROMPT.md` (web UI). Consume raw frames only (AVR/Beast); no dump1090 decoded outputs, no third-party ADS-B libraries, stdlib only apart from `gopkg.in/yaml.v3`.
+The full spec and milestone plan are in `AGENT_PROMPT.md` (backend) and `FRONTEND_PROMPT.md` (web UI). Consume raw frames only (AVR/Beast); no dump1090 decoded outputs, no third-party ADS-B libraries, stdlib only apart from `gopkg.in/yaml.v3` and `github.com/gorilla/websocket` (approved for `/api/ws`).
 
-**Progress:** All backend milestones 1–7 are done (decoding of DF17/18 and Mode S replies, aircraft tracker, HTTP/JSON API with SSE and stats, Beast input with RSSI, README). The web UI (`FRONTEND_PROMPT.md`) is not started.
+**Progress:** All backend milestones 1–7 are done (decoding of DF17/18 and Mode S replies, aircraft tracker, HTTP/JSON API with SSE and stats, Beast input with RSSI, README). Web UI (`FRONTEND_PROMPT.md`): milestones 1–2 are done (backend: `/api/receiver`, `/api/ws`, embed, Makefile, contract fixture; scaffold: Vite/React/TS, WebSocket client, reducer, header). Milestones 3–5 (map, table, polish) are not started. Map tiles: OpenStreetMap, no API key, CSS-filtered for dark mode.
 
 ## Commands
 
@@ -29,6 +29,7 @@ go test -race ./...
 go test ./internal/modes -run TestDecode_Identification   # single test
 go vet ./... && gofmt -l . && go fix ./...
 go run ./cmd/df17-decoder -config config/config.yaml -log-level debug
+make build | test | lint | run       # npm steps are skipped until web/package.json exists
 ```
 
 For offline runs, set `source.url: file://testdata/capture.txt` with `replaySpeed: 0` in a local `config/config.yaml`, which is gitignored; with no `-config` the service runs on built-in defaults. `testdata/capture.txt` is synthetic, built from the mode-s.org test vectors, and `internal/app` tests assert exact counts against it. Update those tests if you change the file.
@@ -49,10 +50,12 @@ Address/parity rule: `modes.Decode` sets `Message.AddressParity` for DF0/4/5/16/
 - `internal/source`: `TCP` (reconnects with exponential backoff, closes the conn via `context.AfterFunc` on cancel) and `File`. In file replay, `Frame.Time` is capture time derived from the `@` 12 MHz timestamps at any `replaySpeed`, so CPR pair ages and speed checks see the original timing; `*` lines reuse the last timestamped time. Both share `readAVR` and atomic `Stats`. `beast://` is a `TCP` with `Format: Beast`, read by `readBeast`. That reader unescapes doubled 0x1A, skips Mode A/C (`'1'`) and status (`'4'`) frames, counts each resync run or truncated frame as one malformed, and sets `Frame.RSSI` to `20·log10(sig/255)` dBFS (nil when the signal byte is 0). File replay is AVR only.
 - `internal/tracker`: `PositionResolver.Resolve` tries a global decode (fresh even/odd pair), then a local decode against the aircraft's last position (younger than `tracker.ttl`), then a local decode against the receiver (≤180 NM). It rejects results beyond `maxRangeNm` or implying more than 1500 kt. A rejected global fix clears the last position so one bad fix can't lock the aircraft out.
 - `internal/tracker/tracker.go`: the aircraft table. One writer (`Update`), many readers (`Snapshot`/`Get`/`Len`) behind an RWMutex. Readers get copies via `Aircraft.clone()`. Pointer fields in `Aircraft` must be replaced, never mutated in place, because clones share them. Ages use data time: newest frame time plus wall time since it arrived, so fast replays expire correctly. `country.go` maps ICAO blocks to countries (partial table).
-- `internal/api`: Go 1.22 `ServeMux` patterns. JSON is camelCase, with unknown values omitted via pointers and `omitempty` (a real 0 ft stays). Unknown `/api/*` paths return a JSON 404. `/api/stream` is SSE (`data: <aircraft array>`). `/healthz` returns 503 if no frame arrived within 30 s.
+- `internal/api`: Go 1.22 `ServeMux` patterns. JSON is camelCase, with unknown values omitted via pointers and `omitempty` (a real 0 ft stays). Unknown `/api/*` paths return a JSON 404. `/api/stream` is SSE (`data: <aircraft array>`). `/healthz` returns 503 if no frame arrived within 30 s. `/api/receiver` returns the configured receiver position. `/api/ws` (`ws.go`, gorilla) is the UI's only channel: `{type,data}` JSON with `receiver` once, then `aircraft` and `stats` every `StreamInterval` (shared builders `aircraftByICAO`/`statsSnapshot` with SSE and `/api/stats`). It is same-origin only, pings every 30 s, and closes with 1001 when the service ctx ends. The frontend must not poll. Every other path (`/`) serves `Deps.UI`, the `web.Dist()` embed of `web/dist`; GET paths that aren't files fall back to `index.html`. Hashed `assets/` get an immutable cache header. `ui_test.go` `TestAircraftContract` reflects a fully populated `tracker.Aircraft` and compares its JSON keys with `web/src/api/aircraft.fixture.json`, so a new `Aircraft` field requires updating the fixture and the TS types.
 - `internal/stats`: atomic counters, per-DF frames, and messages/s over a 60 s window of wall-clock buckets.
 - `internal/geo`: haversine distance (NM) and initial bearing.
 - `internal/app`: wiring and the decode loop. `cmd/df17-decoder/main.go` stays thin.
+- `web`: `embed.go` embeds `web/dist`. `vite build` writes `web/dist/app` (gitignored); `Dist()` serves it when present, otherwise the committed placeholder `web/dist/index.html`, so `go build` works without Node and builds never touch tracked files.
+- `web/src` (React 19, TS 6.0 strict: typescript-eslint doesn't support TS 7 yet): `api/types.ts` mirrors the Go JSON by hand; `aircraftKeys` `satisfies Record<keyof Aircraft, true>` and `contract.test.ts` compares it with the shared fixture. `api/live.ts` `connectLive` is the only data path: `/api/ws` with reconnect backoff 1 s→30 s and "down" after 3 failures; `toAction` ignores unknown message types. `state/reducer.ts` holds everything (aircraft `Map` by ICAO, trails trimmed to 5 min of data time before the newest point, selection cleared when the aircraft disappears). Dev: `npm run dev` proxies `/api` (incl. WS, `rewriteWsOrigin`) to `DF17_BACKEND` (default `http://localhost:8080`).
 
 ## Legacy support packages (unused by the service)
 
