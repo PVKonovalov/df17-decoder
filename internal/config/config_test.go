@@ -104,6 +104,31 @@ func TestLoad_Errors(t *testing.T) {
 	}
 }
 
+func TestLoad_CoverageDirNotWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to read-only directories")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	_, err := Load(writeConfig(t, "coverage:\n  file: "+filepath.Join(dir, "coverage.json")+"\n"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "coverage.file") || !strings.Contains(err.Error(), "not writable") {
+		t.Fatalf("err = %v, want a not-writable coverage.file error", err)
+	}
+
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(writeConfig(t, "coverage:\n  file: "+filepath.Join(dir, "coverage.json")+"\n"), Overrides{}); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("write check left %d files behind", len(entries))
+	}
+}
+
 func TestLoad_BadFlagOverride(t *testing.T) {
 	if _, err := Load(writeConfig(t, ""), Overrides{LogLevel: "loud"}); err == nil {
 		t.Fatal("expected error for invalid -log-level")

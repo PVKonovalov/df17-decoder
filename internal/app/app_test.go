@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/config"
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 )
 
 func captureConfig() config.Config {
@@ -281,5 +282,36 @@ func TestRun_SavesAndReloadsCoverage(t *testing.T) {
 	svc3, log := newService(t, cfg)
 	if n := len(svc3.Coverage.Snapshot().Points); n != 0 || !strings.Contains(log.String(), "another receiver position") {
 		t.Errorf("moved receiver: %d points; log %s", n, log)
+	}
+}
+
+func TestSaveCoverage_WarnsOnceAndReportsRecovery(t *testing.T) {
+	cfg := captureConfig()
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Coverage.File = filepath.Join(dir, "coverage.json")
+	svc, log := newService(t, cfg)
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		svc.Coverage.Add(geo.Point{Lat: 52.5 + float64(i)/10, Lon: 4.4}, nil, nil, time.Now())
+		svc.saveCoverage()
+	}
+	if n := strings.Count(log.String(), "coverage save failed"); n != 1 {
+		t.Fatalf("%d save warnings, want 1; log %s", n, log)
+	}
+
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc.saveCoverage()
+	if !strings.Contains(log.String(), "coverage save works again") {
+		t.Errorf("no recovery message; log %s", log)
+	}
+	if _, err := os.Stat(cfg.Coverage.File); err != nil {
+		t.Errorf("coverage not saved after recovery: %v", err)
 	}
 }

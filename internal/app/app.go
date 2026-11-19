@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,14 +43,15 @@ func NewLogger(cfg config.Log, w io.Writer) *slog.Logger {
 
 // Service wires source → decoder → tracker → HTTP API.
 type Service struct {
-	cfg      config.Config
-	log      *slog.Logger
-	src      source.Source
-	opt      modes.Options
-	ln       net.Listener
-	Stats    *stats.Stats
-	Tracker  *tracker.Tracker
-	Coverage *coverage.Coverage
+	cfg        config.Config
+	log        *slog.Logger
+	saveFailed bool // the last coverage save failed; only the coverage goroutine touches it
+	src        source.Source
+	opt        modes.Options
+	ln         net.Listener
+	Stats      *stats.Stats
+	Tracker    *tracker.Tracker
+	Coverage   *coverage.Coverage
 }
 
 func New(cfg config.Config, log *slog.Logger) (*Service, error) {
@@ -74,10 +76,11 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		if cov, discarded, err = coverage.Load(cfg.Coverage.File, receiver); err != nil {
 			return nil, err
 		}
+		file, _ := filepath.Abs(cfg.Coverage.File)
 		if discarded {
-			log.Warn("coverage file is for another receiver position, starting a new outline", "file", cfg.Coverage.File)
+			log.Warn("coverage file is for another receiver position, starting a new outline", "file", file)
 		} else {
-			log.Info("coverage loaded", "file", cfg.Coverage.File, "buckets", len(cov.Snapshot().Points))
+			log.Info("coverage loaded", "file", file, "buckets", len(cov.Snapshot().Points))
 		}
 	}
 
@@ -205,10 +208,16 @@ func (s *Service) Run(ctx context.Context) error {
 	return ingestErr
 }
 
+// saveCoverage saves the coverage file, logging a failure only when it starts and again when saving recovers.
 func (s *Service) saveCoverage() {
-	if err := s.Coverage.Save(s.cfg.Coverage.File); err != nil {
-		s.log.Warn("coverage save failed", "file", s.cfg.Coverage.File, "err", err)
+	err := s.Coverage.Save(s.cfg.Coverage.File)
+	switch {
+	case err != nil && !s.saveFailed:
+		s.log.Warn("coverage save failed, retrying every minute without further warnings", "file", s.cfg.Coverage.File, "err", err)
+	case err == nil && s.saveFailed:
+		s.log.Info("coverage save works again", "file", s.cfg.Coverage.File)
 	}
+	s.saveFailed = err != nil
 }
 
 // Ingest reads frames from the source and feeds the tracker until ctx is cancelled or the source ends

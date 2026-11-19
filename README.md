@@ -91,7 +91,7 @@ restarts it on failure (not on a config error, exit code 2). On the receiver, fo
 dump1090-fa:
 
 ```sh
-sudo install -m 755 dist/df17-decoder-v1.0.0-linux-arm64 /usr/local/bin/df17-decoder
+sudo install -m 755 dist/df17-decoder-v1.1.0-linux-avr64 /usr/local/bin/df17-decoder
 sudo install -D -m 644 config/config.yaml /etc/df17-decoder/config.yaml
 sudo install -m 644 deploy/df17-decoder.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -100,8 +100,10 @@ journalctl -u df17-decoder -f   # logs
 ```
 
 After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. The unit gives the
-service one writable directory, `/var/lib/df17-decoder`, so set `coverage.file: /var/lib/df17-decoder/coverage.json`
-to keep the coverage outline across restarts. To listen on a port
+service one writable directory, `/var/lib/df17-decoder`, and makes it the working directory, so
+`coverage.file: coverage.json` (or the full `/var/lib/df17-decoder/coverage.json`) keeps the coverage outline and
+grid across restarts. A `coverage.file` whose directory is missing or not writable is a config error: the service
+stops with exit code 2 and systemd doesn't restart it. To listen on a port
 below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 
 ### Docker
@@ -113,7 +115,8 @@ docker run -d --name df17 --restart unless-stopped -p 8080:8080 \
   -v df17-state:/var/lib/df17-decoder df17-decoder
 ```
 
-The `df17-state` volume keeps the coverage outline when `coverage.file` is `/var/lib/df17-decoder/coverage.json`.
+The `df17-state` volume keeps the coverage data when `coverage.file` is `/var/lib/df17-decoder/coverage.json`.
+Use the full path here: the image's working directory is `/`, which the non-root user can't write.
 
 In the container, `localhost` is the container itself. Point `source.url` at the dump1090 host's address, or use
 `--network host` on Linux. For another architecture, use buildx, for example

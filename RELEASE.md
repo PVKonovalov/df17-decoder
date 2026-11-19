@@ -32,3 +32,4 @@
 - 2026-11-19: Coverage heatmap: legend Off/Outline/Signal/Count switch, 2°×5 NM wedges by avg dBFS or position count per altitude band, hover cell stats.
 - 2026-11-19: Full ICAO country table: 194 state blocks from Annex 10 Table 9-1 plus UK territories and Hong Kong; binary-search lookup.
 - 2026-11-19: Shareable links: URL keeps selected aircraft, table filter and sort (?icao=&q=&pos=1&sort=-col), selects on load; Copy link button in detail panel.
+- 2026-11-19: systemd unit runs in its state dir (relative coverage.file works); unwritable coverage.file fails at start (exit 2); save failures logged once.

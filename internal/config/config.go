@@ -193,9 +193,9 @@ func (c Config) Validate() error {
 	}
 	check(c.Map.MaxZoom >= 1 && c.Map.MaxZoom <= 22, "map.maxZoom must be in [1, 22], got %d", c.Map.MaxZoom)
 	if c.Coverage.File != "" {
-		dir := filepath.Dir(c.Coverage.File)
-		fi, err := os.Stat(dir)
-		check(err == nil && fi.IsDir(), "coverage.file: directory %q does not exist", dir)
+		if err := checkWritableDir(filepath.Dir(c.Coverage.File)); err != nil {
+			errs = append(errs, fmt.Errorf("coverage.file %q: %w", c.Coverage.File, err))
+		}
 	}
 
 	switch c.Log.Level {
@@ -210,6 +210,25 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// checkWritableDir returns an error when dir is missing, not a directory, or a temporary file can't be created
+// in it (read-only file system, permissions).
+func checkWritableDir(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.IsDir() {
+		return fmt.Errorf("directory %q does not exist", abs)
+	}
+	f, err := os.CreateTemp(abs, ".df17-write-check-*")
+	if err != nil {
+		return fmt.Errorf("directory %q is not writable: %w", abs, err)
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 // Endpoint splits source.url into its scheme (tcp, beast, file) and address (host:port or file path).

@@ -53,7 +53,9 @@ map:
 coverage:
   # JSON file that keeps the range outline (furthest position per 2° of bearing) across restarts. It is saved
   # every minute and on shutdown, and discarded when receiver.lat/lon change. Empty: kept in memory only.
-  # With the systemd unit: /var/lib/df17-decoder/coverage.json
+  # A relative path is relative to the working directory, which the systemd unit sets to /var/lib/df17-decoder.
+  # The directory must exist and be writable, or the service refuses to start (exit code 2).
+  # Docker: /var/lib/df17-decoder/coverage.json (the df17-state volume).
   file: ""
 
 log:
