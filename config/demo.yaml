@@ -3,7 +3,7 @@ source:
   url: file://testdata/busy.txt
   replaySpeed: 1.0
 receiver:
-  lat: 32.09
-  lon: 34.96
+  lat: 25.07
+  lon: 22.87
 api:
   listen: ":8080"
