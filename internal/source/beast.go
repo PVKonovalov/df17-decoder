@@ -37,8 +37,9 @@ func beastRSSI(sig byte) *float64 {
 
 // readBeast reads Beast binary frames from r and sends Mode S frames to out until r ends or ctx is cancelled.
 // Mode A/C and status frames are skipped. Bytes outside a frame, unknown types and frames cut short by a new
-// frame or EOF count as malformed; the reader resyncs on the next 0x1A.
-func readBeast(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats) error {
+// frame or EOF count as malformed; the reader resyncs on the next 0x1A. clock (nil for live input) gives each
+// frame its time from the 12 MHz timestamp and paces file replay, as in readAVR.
+func readBeast(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats, clock func(ts uint64) (time.Time, error)) error {
 	br := bufio.NewReader(r)
 	end := func(err error) error {
 		if ctx.Err() != nil {
@@ -121,9 +122,16 @@ func readBeast(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats)
 		for _, b := range buf[:6] {
 			ts = ts<<8 | uint64(b)
 		}
+		frameTime := time.Now()
+		if clock != nil {
+			var err error
+			if frameTime, err = clock(ts); err != nil {
+				return err
+			}
+		}
 		f := Frame{
 			Data:      append([]byte(nil), buf[beastHeaderLen:]...),
-			Time:      time.Now(),
+			Time:      frameTime,
 			Timestamp: ts,
 			RSSI:      beastRSSI(buf[6]),
 		}

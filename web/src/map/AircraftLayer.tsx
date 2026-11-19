@@ -4,7 +4,7 @@ import { useMap } from 'react-leaflet'
 import type { Aircraft } from '../api/types'
 import type { Action, TrailPoint } from '../state/reducer'
 import { newAgeMs } from '../table/rows'
-import { aircraftAltitude, altitudeColor, dataNow, isStale, markerLabel, rotation, trailSegments } from './style'
+import { type ColorMode, dataNow, isStale, markerColor, markerLabel, rotation, trailSegments } from './style'
 
 const PLANE_SVG =
   '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 1.5c.8 0 1.3.7 1.3 1.6V9l8 4.8v2.1l-8-2.4v5l2.3 1.7v1.8L12 21.1 8.4 22v-1.8l2.3-1.7v-5l-8 2.4v-2.1l8-4.8V3.1c0-.9.5-1.6 1.3-1.6z"/></svg>'
@@ -26,14 +26,15 @@ interface Props {
   trails: ReadonlyMap<string, readonly TrailPoint[]>
   selected: string | null
   dispatch: Dispatch<Action>
+  colorMode?: ColorMode
 }
 
 /**
- * AircraftLayer draws one rotated, altitude-colored marker with a label and a trail per aircraft with a
- * position. Markers are created once and updated in place on every snapshot; trails are redrawn only when
- * the aircraft's trail or its stale/selected state changes.
+ * AircraftLayer draws one rotated marker, colored by altitude or signal (colorMode), with a label and an
+ * altitude-colored trail per aircraft with a position. Markers are created once and updated in place on every
+ * snapshot; trails are redrawn only when the aircraft's trail or its stale/selected state changes.
  */
-export function AircraftLayer({ aircraft, trails, selected, dispatch }: Props) {
+export function AircraftLayer({ aircraft, trails, selected, dispatch, colorMode = 'altitude' }: Props) {
   const map = useMap()
   const entries = useRef(new Map<string, Entry>())
   const renderer = useRef<L.Canvas | null>(null)
@@ -84,7 +85,7 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch }: Props) {
       if (latlng.lat !== a.lat || latlng.lng !== a.lon) {
         e.marker.setLatLng([a.lat, a.lon])
       }
-      const color = altitudeColor(aircraftAltitude(a), a.onGround === true)
+      const color = markerColor(a, colorMode)
       if (e.color !== color) {
         e.plane.style.color = color
         e.color = color
@@ -112,7 +113,7 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch }: Props) {
         e.trailStyle = trailStyle
       }
     }
-  }, [map, aircraft, trails, selected, dispatch])
+  }, [map, aircraft, trails, selected, dispatch, colorMode])
 
   return null
 }

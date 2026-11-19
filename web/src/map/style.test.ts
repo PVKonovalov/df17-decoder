@@ -7,9 +7,13 @@ import {
   dataNow,
   GROUND_COLOR,
   isStale,
+  markerColor,
   markerLabel,
   NO_ALT_COLOR,
   rotation,
+  SIGNAL_MAX_DB,
+  SIGNAL_MIN_DB,
+  signalColor,
   trailSegments,
 } from './style'
 
@@ -95,5 +99,22 @@ describe('trailSegments', () => {
   it('returns nothing for fewer than two points', () => {
     expect(trailSegments([])).toEqual([])
     expect(trailSegments([pt(1, 1000)])).toEqual([])
+  })
+})
+
+describe('signalColor', () => {
+  it('runs from red (weak) to green (strong), clamped, grey when unknown', () => {
+    expect(signalColor(SIGNAL_MIN_DB)).toBe('hsl(0 80% 42%)')
+    expect(signalColor(-50)).toBe('hsl(0 80% 42%)')
+    expect(signalColor(SIGNAL_MAX_DB)).toBe('hsl(120 80% 42%)')
+    expect(signalColor(0)).toBe('hsl(120 80% 42%)')
+    expect(signalColor((SIGNAL_MIN_DB + SIGNAL_MAX_DB) / 2)).toBe('hsl(60 80% 42%)')
+    expect(signalColor(undefined)).toBe(NO_ALT_COLOR)
+  })
+
+  it('markerColor follows the mode', () => {
+    const a = ac({ altBaro: 0, rssi: -3 })
+    expect(markerColor(a, 'altitude')).toBe(altitudeColor(0))
+    expect(markerColor(a, 'signal')).toBe(signalColor(-3))
   })
 })

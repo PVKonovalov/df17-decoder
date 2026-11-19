@@ -26,3 +26,4 @@
 - 2026-11-19: Version from git tag (-version, startup log, /api/stats, UI title); make dist (Pi/Linux static builds); systemd unit; Dockerfile + make docker.
 - 2026-11-19: Target state (TC 29): selected altitude (MCP/FMS), heading, altimeter, autopilot modes in API and detail panel; replaygen sends TC 29.
 - 2026-11-19: Comm-B BDS 4,0/5,0/6,0 inferred from DF20/21 with IAS/Mach and ADS-B cross-checks; roll, mach fields; commBAmbiguous/Rejected stats; replaygen DF20.
+- 2026-11-19: Signal view: Altitude/Signal marker colors (Beast RSSI, 8-frame average); Beast file replay; replaygen -format beast; make demo uses busy.bin.

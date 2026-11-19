@@ -56,16 +56,18 @@ startup with a list of all errors found.
 
 ### Offline replay
 
-Record a capture and replay it without the radio:
+Record a capture and replay it without the radio. Both formats work, and the format is detected from the file.
+A Beast capture keeps the signal level (RSSI):
 
 ```sh
-nc 192.168.1.50 30002 > testdata/my-capture.txt
+nc 192.168.1.50 30005 > testdata/my-capture.bin   # Beast binary, with signal levels
+nc 192.168.1.50 30002 > testdata/my-capture.txt   # or AVR text
 ```
 
 ```yaml
 source:
-  url: file://testdata/my-capture.txt
-  replaySpeed: 0      # 0 = as fast as possible, 1.0 = real time (uses @-timestamps)
+  url: file://testdata/my-capture.bin
+  replaySpeed: 0      # 0 = as fast as possible, 1.0 = real time (uses the 12 MHz timestamps)
 ```
 
 ## Running as a service
@@ -193,7 +195,9 @@ Open `http://<host>:8080/` for a live map and a table of aircraft. The UI is bui
 there's nothing else to deploy.
 
 - **Map** (Leaflet, OpenStreetMap tiles, no API key): the receiver with range rings at 25/50/100 nm, and
-  aircraft rotated by track and colored by altitude (legend bottom-left). Labels show callsign and altitude
+  aircraft rotated by track and colored by altitude (legend bottom-left). With Beast input, the legend has an
+  Altitude/Signal switch that colors markers by signal level instead, from red (weak, -36 dBFS) to green
+  (strong, -3 dBFS), to check antenna coverage. RSSI is averaged over each aircraft's last 8 frames. Labels show callsign and altitude
   in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails cover
   the last 5 minutes. Aircraft whose position is older than 30 s fade out.
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
@@ -204,7 +208,8 @@ there's nothing else to deploy.
 - **New aircraft:** rows of aircraft first seen in the last 30 s are highlighted in amber, fading out, and
   their map marker pulses briefly when it appears.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
-  known field (including the selected altitude and heading, altimeter setting, autopilot modes, roll and Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+  known field (including the selected altitude and heading, altimeter setting, autopilot modes, roll and
+  Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
   shows the aircraft count, messages per second, the receiver source status and the connection state. The
   page reconnects with backoff by itself.
@@ -269,18 +274,20 @@ ESLint and `tsc`.
 ### Demo without a radio
 
 ```sh
-make demo         # generates testdata/busy.txt (150 aircraft over 10 min) and replays it in real time
-make busy         # only regenerates testdata/busy.txt
+make demo         # generates testdata/busy.bin (150 aircraft over 10 min) and replays it in real time
+make busy         # only regenerates testdata/busy.bin
 ```
 
 `make demo` serves on port 8080 (`config/demo.yaml`). Stop any other instance first, or change `api.listen` there.
 
-`cmd/replaygen` writes the synthetic capture around the receiver in `config/demo.yaml` (`-config`). By default
-40% of the aircraft arrive during the replay, with airliners entering at the edge of coverage, so new rows keep
-appearing. Another 30% stop transmitting early and then expire. About 15% are Mode-S-only (half of them also answer Comm-B with BDS 4,0/5,0/6,0), one squawks 7700, and 6 more
-taxi at an airfield 6 nm north-east of the receiver (surface positions, "GND" on the map).
-Flags such as `-n`, `-taxiing`, `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon`
-change this (`go run ./cmd/replaygen -h`).
+`cmd/replaygen` writes the synthetic capture around the receiver in `config/demo.yaml` (`-config`). `make busy`
+writes Beast (`-format beast`), with a signal level that falls with distance, so the Signal view works. The
+default is AVR text. By default 40% of the aircraft arrive during the replay, with airliners entering at the edge
+of coverage, so new rows keep appearing. Another 30% stop transmitting early and then expire. About 15% are
+Mode-S-only (half of them also answer Comm-B with BDS 4,0/5,0/6,0), one squawks 7700, and 6 more taxi at an
+airfield 6 nm north-east of the receiver (surface positions, "GND" on the map). Flags such as `-n`, `-taxiing`,
+`-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon` change this
+(`go run ./cmd/replaygen -h`).
 
 ## Architecture
 

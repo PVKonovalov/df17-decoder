@@ -4,7 +4,18 @@ import { useEffect, useMemo, type Dispatch } from 'react'
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { Action, State } from '../state/reducer'
 import { AircraftLayer } from './AircraftLayer'
-import { ALT_MAX_FT, altitudeColor, destinationNorth, GROUND_COLOR, NO_ALT_COLOR } from './style'
+import { useColorMode } from './colorMode'
+import {
+  ALT_MAX_FT,
+  altitudeColor,
+  type ColorMode,
+  destinationNorth,
+  GROUND_COLOR,
+  NO_ALT_COLOR,
+  SIGNAL_MAX_DB,
+  SIGNAL_MIN_DB,
+  signalColor,
+} from './style'
 
 const NM_TO_M = 1852
 const RING_NM = [25, 50, 100] as const
@@ -20,6 +31,9 @@ interface Props {
  */
 export function LiveMap({ state, dispatch }: Props) {
   const { receiver, map: tiles } = state
+  const [chosenMode, setColorMode] = useColorMode()
+  const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
+  const colorMode = hasSignal ? chosenMode : 'altitude'
   if (receiver === null || tiles === null) {
     return <div className="map-wait">Waiting for receiver position…</div>
   }
@@ -47,12 +61,13 @@ export function LiveMap({ state, dispatch }: Props) {
           trails={state.trails}
           selected={state.selected}
           dispatch={dispatch}
+          colorMode={colorMode}
         />
         <ClearSelectionOnMapClick dispatch={dispatch} />
         <PanToSelection state={state} />
         <InvalidateOnResize />
       </MapContainer>
-      <AltitudeLegend />
+      <MapLegend mode={colorMode} onMode={hasSignal ? setColorMode : undefined} />
     </div>
   )
 }
@@ -129,29 +144,58 @@ function InvalidateOnResize() {
   return null
 }
 
-const LEGEND_TICKS = [0, 10_000, 20_000, 30_000, 40_000] as const
+const ALT_TICKS = [0, 10_000, 20_000, 30_000, 40_000] as const
+const SIGNAL_TICKS = [-36, -25, -14, -3] as const
 
-/** AltitudeLegend shows the continuous altitude color scale used by markers and trails. */
-export function AltitudeLegend() {
-  const gradient = useMemo(() => {
-    const stops: string[] = []
-    for (let ft = 0; ft <= ALT_MAX_FT; ft += 2000) {
-      stops.push(`${altitudeColor(ft)} ${(ft / ALT_MAX_FT) * 100}%`)
-    }
-    return `linear-gradient(to right, ${stops.join(', ')})`
-  }, [])
+const gradient = (stops: string[]) => `linear-gradient(to right, ${stops.join(', ')})`
+const ALT_GRADIENT = gradient(
+  Array.from({ length: ALT_MAX_FT / 2000 + 1 }, (_, i) => `${altitudeColor(i * 2000)} ${(i * 2000 * 100) / ALT_MAX_FT}%`),
+)
+const SIGNAL_GRADIENT = gradient(
+  Array.from({ length: 12 }, (_, i) => {
+    const db = SIGNAL_MIN_DB + (i * (SIGNAL_MAX_DB - SIGNAL_MIN_DB)) / 11
+    return `${signalColor(db)} ${(i * 100) / 11}%`
+  }),
+)
+
+/**
+ * MapLegend shows the color scale of the markers: altitude (also used by trails) or signal level. onMode,
+ * given only when some aircraft has a signal level (Beast input), adds the switch between the two.
+ */
+export function MapLegend({ mode, onMode }: { mode: ColorMode; onMode?: ((m: ColorMode) => void) | undefined }) {
+  const signal = mode === 'signal'
   return (
-    <div className="legend" aria-label="Altitude color scale">
-      <div className="legend-title">Altitude, ft</div>
-      <div className="legend-bar" style={{ background: gradient }} />
+    <div className="legend" aria-label={signal ? 'Signal color scale' : 'Altitude color scale'}>
+      {onMode !== undefined && (
+        <div className="legend-modes" role="group" aria-label="Color markers by">
+          {(['altitude', 'signal'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              onClick={() => {
+                onMode(m)
+              }}
+            >
+              {m === 'altitude' ? 'Altitude' : 'Signal'}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="legend-title">{signal ? 'Signal, dBFS (trails: altitude)' : 'Altitude, ft'}</div>
+      <div className="legend-bar" style={{ background: signal ? SIGNAL_GRADIENT : ALT_GRADIENT }} />
       <div className="legend-ticks">
-        {LEGEND_TICKS.map((ft) => (
-          <span key={ft}>{ft === 0 ? '0' : `${ft / 1000}k`}</span>
-        ))}
+        {signal
+          ? SIGNAL_TICKS.map((db) => <span key={db}>{db}</span>)
+          : ALT_TICKS.map((ft) => <span key={ft}>{ft === 0 ? '0' : `${ft / 1000}k`}</span>)}
       </div>
       <div className="legend-extra">
-        <span className="legend-swatch" style={{ background: GROUND_COLOR }} /> on ground
-        <span className="legend-swatch" style={{ background: NO_ALT_COLOR }} /> unknown
+        {!signal && (
+          <>
+            <span className="legend-swatch" style={{ background: GROUND_COLOR }} /> on ground
+          </>
+        )}
+        <span className="legend-swatch" style={{ background: NO_ALT_COLOR }} /> {signal ? 'no signal level' : 'unknown'}
       </div>
     </div>
   )

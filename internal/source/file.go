@@ -1,6 +1,7 @@
 package source
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"time"
@@ -8,8 +9,8 @@ import (
 
 const clockHz = 12_000_000 // dump1090 AVR/Beast timestamp clock
 
-// File replays AVR lines from a file. Lines with @-timestamps are paced by Opt.ReplaySpeed;
-// lines without timestamps are emitted immediately.
+// File replays a capture: AVR lines, or Beast binary when the file starts with 0x1A (e.g. `nc host 30005 > c.bin`).
+// Frames with 12 MHz timestamps are paced by Opt.ReplaySpeed; AVR lines without one are emitted immediately.
 type File struct {
 	Path  string
 	Opt   Options
@@ -29,7 +30,12 @@ func (f *File) Run(ctx context.Context, out chan<- Frame) error {
 	f.stats.connected.Store(true)
 	defer f.stats.connected.Store(false)
 
-	return readAVR(ctx, fh, out, &f.stats, newReplayClock(ctx, f.Opt.ReplaySpeed))
+	br := bufio.NewReader(fh)
+	clock := newReplayClock(ctx, f.Opt.ReplaySpeed)
+	if first, err := br.Peek(1); err == nil && first[0] == beastEsc {
+		return readBeast(ctx, br, out, &f.stats, clock)
+	}
+	return readAVR(ctx, br, out, &f.stats, clock)
 }
 
 // newReplayClock returns a function giving each frame its time in capture time: the wall clock at the first

@@ -555,3 +555,33 @@ body {
 .legend-swatch:not(:first-child) {
   margin-left: 6px;
 }
+
+.legend-modes {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.legend-modes button {
+  flex: 1;
+  padding: 2px 0;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.legend-modes button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.legend-modes button:last-child {
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+}
+
+.legend-modes button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--sel-bg);
+  border-color: var(--sel);
+}

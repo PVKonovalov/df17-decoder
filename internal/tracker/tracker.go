@@ -26,8 +26,26 @@ type entry struct {
 	a              Aircraft
 	cpr            CPRState
 	altitudeLogged bool
-	velocityTime   time.Time // data time of the last ADS-B velocity (TC 19)
-	commBTime      time.Time // data time of the last accepted Comm-B 5,0 or 6,0
+	velocityTime   time.Time           // data time of the last ADS-B velocity (TC 19)
+	commBTime      time.Time           // data time of the last accepted Comm-B 5,0 or 6,0
+	signal         [rssiWindow]float64 // linear power of the last frames, ring buffer
+	signalN        int                 // frames stored in signal so far
+}
+
+// rssiWindow is how many frames Aircraft.RSSI averages, as dump1090 does.
+const rssiWindow = 8
+
+// addSignal stores one frame's RSSI (dBFS) and returns the average of the last rssiWindow frames in dBFS,
+// averaged as linear power.
+func (e *entry) addSignal(dbfs float64) float64 {
+	e.signal[e.signalN%rssiWindow] = math.Pow(10, dbfs/10)
+	e.signalN++
+	n := min(e.signalN, rssiWindow)
+	var sum float64
+	for _, p := range e.signal[:n] {
+		sum += p
+	}
+	return 10 * math.Log10(sum/float64(n))
 }
 
 // Tracker keeps the live aircraft table. Update is called by one decoding goroutine; Snapshot, Get and Len
@@ -113,7 +131,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	a.Messages++
 	a.MessagesByDF[m.DF]++
 	if rssi != nil {
-		a.RSSI = new(*rssi)
+		a.RSSI = new(round(e.addSignal(*rssi), 1))
 	}
 	if m.OnGround != nil {
 		a.OnGround = m.OnGround

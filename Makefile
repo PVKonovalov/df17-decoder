@@ -40,9 +40,9 @@ endif
 run: build
 	./$(BIN) -config $(CONFIG)
 
-# Synthetic 10-minute capture with 150 aircraft around the receiver in config/demo.yaml.
+# Synthetic 10-minute Beast capture (with signal levels) of 150 aircraft around the receiver in config/demo.yaml.
 busy:
-	go run ./cmd/replaygen -config config/demo.yaml -o testdata/busy.txt
+	go run ./cmd/replaygen -config config/demo.yaml -format beast -o testdata/busy.bin
 
 demo: build busy
 	./$(BIN) -config config/demo.yaml

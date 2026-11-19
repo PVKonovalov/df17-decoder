@@ -264,3 +264,49 @@ func TestGenerate_Taxiing(t *testing.T) {
 		t.Errorf("on ground: %d, want %d", ground, o.taxiing)
 	}
 }
+
+func TestGenerate_Beast(t *testing.T) {
+	o := options{lat: 25.07, lon: 22.87, count: 20, modeSOnly: 0.2, duration: 20, step: 0.5, maxRangeNm: 150, seed: 9, taxiing: 2, beast: true}
+	var buf bytes.Buffer
+	n, err := generate(&buf, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "c.bin")
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := source.New("file", path, source.Options{ReplaySpeed: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan source.Frame, n+1)
+	if err := src.Run(t.Context(), out); err != nil {
+		t.Fatal(err)
+	}
+	close(out)
+	got := 0
+	for f := range out {
+		decode(t, f.Data)
+		if f.RSSI == nil || *f.RSSI > -0.9 || *f.RSSI < -41 {
+			t.Fatalf("frame %d: rssi %v", got, f.RSSI)
+		}
+		got++
+	}
+	if got != n || src.Stats().Snapshot().Malformed != 0 {
+		t.Errorf("replayed %d of %d frames, malformed %d", got, n, src.Stats().Snapshot().Malformed)
+	}
+}
+
+func TestSignalByte(t *testing.T) {
+	db := func(sig byte) float64 { return 20 * math.Log10(float64(sig)/255) }
+	if d := db(signalByte(2, 0)); math.Abs(d+3) > 0.1 {
+		t.Errorf("2 nm: %.1f dBFS, want -3", d)
+	}
+	if d := db(signalByte(150, 0)); math.Abs(d+32.5) > 0.2 {
+		t.Errorf("150 nm: %.1f dBFS, want -32.5", d)
+	}
+	if d := db(signalByte(1000, -5)); d < -41 || d > -38 { // -40 dBFS quantized to byte 3
+		t.Errorf("clamp: %.1f dBFS, want about -40", d)
+	}
+}

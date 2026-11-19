@@ -40,6 +40,27 @@ export function altitudeColor(ft: number | undefined, onGround = false): string 
   return `hsl(${Math.round(altitudeHue(ft))} 85% 45%)`
 }
 
+/** Signal scale (Beast RSSI, dBFS): red at SIGNAL_MIN_DB and below, through yellow, to green at SIGNAL_MAX_DB. */
+export const SIGNAL_MIN_DB = -36
+export const SIGNAL_MAX_DB = -3
+
+/** ColorMode selects what marker colors show. */
+export type ColorMode = 'altitude' | 'signal'
+
+/** signalColor returns the CSS color for an RSSI in dBFS; undefined (no signal level) is grey. */
+export function signalColor(db: number | undefined): string {
+  if (db === undefined) {
+    return NO_ALT_COLOR
+  }
+  const x = (Math.min(Math.max(db, SIGNAL_MIN_DB), SIGNAL_MAX_DB) - SIGNAL_MIN_DB) / (SIGNAL_MAX_DB - SIGNAL_MIN_DB)
+  return `hsl(${Math.round(x * 120)} 80% 42%)`
+}
+
+/** markerColor is the aircraft's marker color in the given mode. */
+export function markerColor(a: Aircraft, mode: ColorMode): string {
+  return mode === 'signal' ? signalColor(a.rssi) : altitudeColor(aircraftAltitude(a), a.onGround === true)
+}
+
 /** aircraftAltitude prefers barometric altitude, then GNSS. */
 export function aircraftAltitude(a: Aircraft): number | undefined {
   return a.altBaro ?? a.altGnss

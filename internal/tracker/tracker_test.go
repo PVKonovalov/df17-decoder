@@ -345,3 +345,30 @@ func TestTracker_CommBAmbiguousResolvedByReference(t *testing.T) {
 		t.Errorf("no reference: gs=%v ambiguous=%d", a.GroundSpeed, st.CommBAmbiguous.Load())
 	}
 }
+
+func TestTracker_RSSIAveragesLastFrames(t *testing.T) {
+	tr, _, _ := newTestTracker(t)
+	b, _ := hex.DecodeString(frameKLMIdent)
+	m, _ := modes.Decode(b, t0, modes.Options{})
+	rssi := func(v float64) float64 {
+		tr.Update(m, &v)
+		a, _ := tr.Get(0x4840D6)
+		return *a.RSSI
+	}
+	if got := rssi(-10); got != -10 {
+		t.Errorf("first frame: %v", got)
+	}
+	if got := rssi(-20); got != -12.6 { // 10·log10((0.1 + 0.01) / 2)
+		t.Errorf("two frames: %v, want -12.6", got)
+	}
+	for range rssiWindow {
+		rssi(-30)
+	}
+	if got := rssi(-30); got != -30 {
+		t.Errorf("after the window is full of -30: %v", got)
+	}
+	tr.Update(m, nil)
+	if a, _ := tr.Get(0x4840D6); *a.RSSI != -30 {
+		t.Errorf("frame without RSSI changed it: %v", *a.RSSI)
+	}
+}

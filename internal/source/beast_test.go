@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -35,7 +36,7 @@ func runBeast(t *testing.T, stream []byte) ([]Frame, *Stats) {
 	t.Helper()
 	var stats Stats
 	out := make(chan Frame, 64)
-	if err := readBeast(t.Context(), bytes.NewReader(stream), out, &stats); err != nil {
+	if err := readBeast(t.Context(), bytes.NewReader(stream), out, &stats, nil); err != nil {
 		t.Fatal(err)
 	}
 	close(out)
@@ -153,5 +154,39 @@ func TestTCP_Beast(t *testing.T) {
 	}
 	if want := "[8d4840d6202cc371c32ce0576098 1a481a1a202c1a]"; fmt.Sprint(got) != want {
 		t.Errorf("frames = %v, want %v", got, want)
+	}
+}
+
+func TestFile_Beast(t *testing.T) {
+	var stream []byte
+	stream = append(stream, beastFrame('3', 1000, 128, beastLong)...)
+	stream = append(stream, 0x55, 0x66)                                // junk: one malformed run
+	stream = append(stream, beastFrame('4', 1000, 0, []byte{0, 0})...) // status frame, skipped
+	stream = append(stream, beastFrame('2', 1000+7_200_000, 0x1A, beastEscd)...)
+	path := t.TempDir() + "/c.bin"
+	if err := os.WriteFile(path, stream, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, _ := New("file", path, Options{ReplaySpeed: 3, Logger: quietLogger()})
+
+	start := time.Now()
+	frames, err := collect(t.Context(), t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frames) != 2 || !bytes.Equal(frames[0].Data, beastLong) || !bytes.Equal(frames[1].Data, beastEscd) {
+		t.Fatalf("frames: %+v", frames)
+	}
+	if gap := frames[1].Time.Sub(frames[0].Time); gap != 600*time.Millisecond {
+		t.Errorf("capture time gap = %s, want 600ms", gap)
+	}
+	if wall := time.Since(start); wall < 150*time.Millisecond || wall > time.Second {
+		t.Errorf("replay took %s, want ~200ms at 3x", wall)
+	}
+	if frames[0].RSSI == nil || math.Abs(*frames[0].RSSI-20*math.Log10(128.0/255)) > 1e-9 || frames[1].RSSI == nil {
+		t.Errorf("rssi: %v %v", frames[0].RSSI, frames[1].RSSI)
+	}
+	if m := src.Stats().Snapshot().Malformed; m != 1 {
+		t.Errorf("malformed = %d, want 1", m)
 	}
 }

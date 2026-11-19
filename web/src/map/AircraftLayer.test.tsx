@@ -3,7 +3,7 @@ import { MapContainer } from 'react-leaflet'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Aircraft } from '../api/types'
 import { AircraftLayer } from './AircraftLayer'
-import { GROUND_COLOR } from './style'
+import { type ColorMode, GROUND_COLOR, markerColor } from './style'
 
 afterEach(cleanup)
 
@@ -31,15 +31,20 @@ const modeSOnly = (icao: string, firstSeen: string): Aircraft => ({
   adsb: false,
 })
 
-function renderLayer(list: Aircraft[]) {
+function renderLayer(list: Aircraft[], colorMode: ColorMode = 'altitude') {
   const aircraft = new Map(list.map((a) => [a.icao, a]))
-  const r = render(
+  const dispatch = vi.fn()
+  const layer = (mode: ColorMode) => (
     <MapContainer center={[25, 23]} zoom={8} style={{ width: 400, height: 300 }}>
-      <AircraftLayer aircraft={aircraft} trails={new Map()} selected={null} dispatch={vi.fn()} />
-    </MapContainer>,
+      <AircraftLayer aircraft={aircraft} trails={new Map()} selected={null} dispatch={dispatch} colorMode={mode} />
+    </MapContainer>
   )
+  const r = render(layer(colorMode))
   const marker = (icao: string) => r.container.querySelector<HTMLElement>(`.ac[title="${icao}"]`)
-  return { ...r, marker }
+  const setMode = (mode: ColorMode) => {
+    r.rerender(layer(mode))
+  }
+  return { ...r, marker, setMode }
 }
 
 describe('AircraftLayer', () => {
@@ -70,5 +75,26 @@ describe('AircraftLayer on the ground', () => {
     expect(m?.querySelector('.ac-label')?.textContent).toBe('ELY2 GND')
     const plane = m?.querySelector<HTMLElement>('.ac-plane')
     expect(plane?.style.color).toBe(groundColor.style.color)
+  })
+})
+
+describe('AircraftLayer color mode', () => {
+  it('recolors existing markers in place when switching to signal', () => {
+    const strong = ac('738005', '2026-11-19T09:55:00Z', { altBaro: 30000, rssi: -4 })
+    const noRssi = ac('738006', '2026-11-19T09:55:00Z', { altBaro: 30000 })
+    const { marker, setMode } = renderLayer([strong, noRssi])
+    const before = marker('738005')
+    const color = (icao: string) => marker(icao)?.querySelector<HTMLElement>('.ac-plane')?.style.color
+    const css = (c: string) => {
+      const el = document.createElement('i')
+      el.style.color = c
+      return el.style.color
+    }
+    expect(color('738005')).toBe(css(markerColor(strong, 'altitude')))
+
+    setMode('signal')
+    expect(marker('738005')).toBe(before)
+    expect(color('738005')).toBe(css(markerColor(strong, 'signal')))
+    expect(color('738006')).toBe(css(markerColor(noRssi, 'signal')))
   })
 })

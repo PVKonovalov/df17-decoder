@@ -30,6 +30,7 @@ type options struct {
 	arrivals     float64 // fraction of aircraft that appear during the capture rather than at its start
 	departures   float64 // fraction of aircraft that stop transmitting before the end
 	taxiing      int     // extra aircraft taxiing at an airfield near the receiver (surface positions)
+	beast        bool    // write Beast binary with a distance-dependent signal level instead of AVR text
 }
 
 type aircraft struct {
@@ -250,9 +251,11 @@ func (a *aircraft) frames(n int) [][]byte {
 	return out
 }
 
-// generate writes @-timestamped AVR lines for the whole simulation to w and returns the number of lines.
+// generate writes the whole simulation to w, as @-timestamped AVR lines or Beast frames (o.beast), and returns
+// the number of frames.
 func generate(w io.Writer, o options) (int, error) {
 	r := rand.New(rand.NewPCG(o.seed, o.seed^0x9E3779B97F4A7C15))
+	noise := rand.New(rand.NewPCG(o.seed, o.seed^1)) // separate stream, so AVR output does not depend on it
 	fleet := newFleet(o, r)
 	bw := bufio.NewWriter(w)
 	lines := 0
@@ -263,7 +266,13 @@ func generate(w io.Writer, o options) (int, error) {
 		for _, a := range fleet {
 			for _, f := range a.frames(n) {
 				ts += 1200 // 100 µs between frames keeps timestamps strictly increasing within a tick
-				if _, err := fmt.Fprintf(bw, "@%012X%X;\n", ts, f); err != nil {
+				var err error
+				if o.beast {
+					_, err = bw.Write(beastFrame(ts, signalByte(a.distanceNm(o), noise.NormFloat64()), f))
+				} else {
+					_, err = fmt.Fprintf(bw, "@%012X%X;\n", ts, f)
+				}
+				if err != nil {
 					return lines, err
 				}
 				lines++
@@ -272,6 +281,37 @@ func generate(w io.Writer, o options) (int, error) {
 		}
 	}
 	return lines, bw.Flush()
+}
+
+// distanceNm is the aircraft's distance from the receiver.
+func (a *aircraft) distanceNm(o options) float64 {
+	return math.Hypot((a.lat-o.lat)*60, (a.lon-o.lon)*60*math.Cos(o.lat*math.Pi/180))
+}
+
+// signalByte models the Beast signal level: -3 dBFS at 5 nm or closer, falling 20 dB per decade of distance
+// (about -33 dBFS at 150 nm), plus noise·2 dB, clamped to -40…-1 dBFS (the byte is coarse below that).
+func signalByte(distNm, noise float64) byte {
+	db := -3 - 20*math.Log10(math.Max(distNm, 5)/5) + 2*noise
+	db = math.Min(math.Max(db, -40), -1)
+	return byte(math.Round(255 * math.Pow(10, db/20)))
+}
+
+// beastFrame encodes one Beast frame (type '2' short or '3' long) with a 12 MHz timestamp and signal byte,
+// doubling every 0x1A after the leading escape.
+func beastFrame(ts uint64, sig byte, data []byte) []byte {
+	typ := byte('2')
+	if len(data) == 14 {
+		typ = '3'
+	}
+	body := append([]byte{byte(ts >> 40), byte(ts >> 32), byte(ts >> 24), byte(ts >> 16), byte(ts >> 8), byte(ts), sig}, data...)
+	out := []byte{0x1A, typ}
+	for _, b := range body {
+		out = append(out, b)
+		if b == 0x1A {
+			out = append(out, 0x1A)
+		}
+	}
+	return out
 }
 
 // applyConfig takes the receiver position from the service config at path, unless -lat/-lon were given
@@ -307,9 +347,18 @@ func main() {
 	flag.StringVar(&o.emergencySqk, "emergency", "7700", "squawk of one emergency aircraft (empty: none)")
 	flag.Float64Var(&o.arrivals, "arrivals", 0.4, "fraction of aircraft that appear during the capture")
 	flag.Float64Var(&o.departures, "departures", 0.3, "fraction of aircraft that stop transmitting before the end")
+	format := flag.String("format", "avr", "output format: avr (text) or beast (binary, with signal level)")
 	flag.IntVar(&o.taxiing, "taxiing", 6, "extra aircraft taxiing at an airfield 6 nm north-east of the receiver")
 	flag.Parse()
 	o.step = 0.5
+	switch *format {
+	case "avr":
+	case "beast":
+		o.beast = true
+	default:
+		fmt.Fprintf(os.Stderr, "unknown -format %q (avr or beast)\n", *format)
+		os.Exit(2)
+	}
 	if *cfgPath != "" {
 		explicit := map[string]bool{}
 		flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })

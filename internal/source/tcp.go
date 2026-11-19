@@ -42,7 +42,7 @@ func (t *TCP) Run(ctx context.Context, out chan<- Frame) error {
 			t.stats.connected.Store(true)
 			stop := context.AfterFunc(ctx, func() { conn.Close() })
 			if t.Format == Beast {
-				err = readBeast(ctx, conn, out, &t.stats)
+				err = readBeast(ctx, conn, out, &t.stats, nil)
 			} else {
 				err = readAVR(ctx, conn, out, &t.stats, nil)
 			}

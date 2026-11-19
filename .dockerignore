@@ -7,5 +7,6 @@
 /dist
 /config/config.yaml
 /testdata/busy.txt
+/testdata/busy.bin
 /web/node_modules
 /web/dist/app
