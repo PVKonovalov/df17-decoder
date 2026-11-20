@@ -51,3 +51,4 @@
 - 2026-11-20: Docs for the Statistics page (README: charts, aircraft-hours, stats.retention, disk projections, API); CLAUDE.md notes; echarts in the dependency lists.
 - 2026-11-20: Stats M5 (schema v4): operators chart, receiver health per hour (counters, silent minutes, signal), altitude bands, notable aircraft (emergencies, first-seen ICAO); endpoints.
 - 2026-11-20: Quiet sky is not a recording problem: tape LastFlush moves while idle, REC uses serverTime (new in /api/stats), /healthz 200 while connected and idle.
+- 2026-11-20: Tape deck: explicit ⏸ pause / ▶ play in playback; the counter shows local time and UTC, in live too (LIVE and the server's time).

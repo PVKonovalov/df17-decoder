@@ -344,10 +344,10 @@ The **tape deck** under the header:
   when frames are dropped, writes fail, the writer stops flushing, the source is disconnected or recording is
   paused because the disk is low (hover for the reason); grey when the tape is disabled. Ages are measured on the
   server's clock (`serverTime` in `/api/stats`), so a browser with a wrong clock doesn't raise false alarms.
-- **⏮** goes to the oldest recording, **⏪** back 10 s (Shift: 1 min). In playback also **⏯** play/pause,
+- **⏮** goes to the oldest recording, **⏪** back 10 s (Shift: 1 min). In playback also **⏸** pause (**▶** play while paused),
   **⏩** speed (1×, 2×, 4×, 8×, 16×, 60×) and **⏭ LIVE**.
-- The **tape counter** shows the playback time (with the date when it isn't today); click it to type a date and
-  time. It flashes when playback jumps over a silence of more than a minute.
+- The **tape counter** shows the playback time, or **LIVE** and the server's time, in local time with UTC beneath
+  (each with its date when it isn't today's); click it to type a local date and time. It flashes when playback jumps over a silence of more than a minute.
 - The **timeline** shows the recorded spans with gaps hatched; click or drag to seek, and zoom to 1 hour, 6 hours,
   1 day or the whole tape. With `history.enabled` it also shows the traffic (flights per minute, ADS-B darker) and
   red markers for emergency squawks, and the deck gets a **Find a flight** box: pick a callsign or ICAO to wind

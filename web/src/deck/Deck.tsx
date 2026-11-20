@@ -6,6 +6,7 @@ import { densityPaths, flightSeek, timelineQuery } from './history'
 import type { Action, State } from '../state/reducer'
 import {
   formatCounter,
+  formatUtc,
   isTyping,
   keyCommand,
   nextSpeed,
@@ -68,7 +69,7 @@ export function Deck({ state, send, dispatch }: { state: State; send: SendContro
         ● REC
       </span>
       {pb !== null && <Transport pb={pb} send={send} />}
-      {pb !== null && <Counter pb={pb} nowMs={nowMs} send={send} />}
+      {pb !== null && <Counter pb={pb} nowMs={serverNowMs(stats, nowMs)} send={send} />}
       {inPlayback && (
         <span className="deck-badge" aria-live="polite">
           PLAYBACK {pb.speed}×{pb.playing ? '' : ' ‖'}
@@ -125,13 +126,14 @@ function Transport({ pb, send }: { pb: Playback; send: SendControl }) {
         <>
           <button
             type="button"
+            className={pb.playing ? 'deck-pause' : 'deck-play'}
             title={`${pb.playing ? 'Pause' : 'Play'} · Space`}
             aria-label={pb.playing ? 'Pause' : 'Play'}
             onClick={() => {
               send({ action: pb.playing ? 'pause' : 'play' })
             }}
           >
-            ⏯
+            {pb.playing ? '⏸' : '▶'}
           </button>
           <button
             type="button"
@@ -159,7 +161,16 @@ function Transport({ pb, send }: { pb: Playback; send: SendControl }) {
   )
 }
 
-/** Counter shows the playback time ("LIVE" in live mode); a click opens a date and time field that seeks. */
+/** serverNowMs is the server's clock from the last stats (serverTime), else fallback. */
+function serverNowMs(stats: State['stats'], fallback: number): number {
+  const t = stats === null ? NaN : Date.parse(stats.serverTime)
+  return Number.isNaN(t) ? fallback : t
+}
+
+/**
+ * Counter shows the playback time, or "LIVE" and the server's time, in local time with UTC beneath; a click opens
+ * a local date and time field that seeks.
+ */
 function Counter({ pb, nowMs, send }: { pb: Playback; nowMs: number; send: SendControl }) {
   const [editing, setEditing] = useState<string | null>(null)
   const tMs = Date.parse(pb.t)
@@ -209,7 +220,10 @@ function Counter({ pb, nowMs, send }: { pb: Playback; nowMs: number; send: SendC
         setEditing(toInputValue(pb.mode === 'live' ? nowMs : tMs))
       }}
     >
-      {pb.mode === 'live' ? 'LIVE' : formatCounter(tMs, nowMs)}
+      <span className="deck-counter-local">
+        {pb.mode === 'live' ? `LIVE ${formatCounter(nowMs, nowMs)}` : formatCounter(tMs, nowMs)}
+      </span>
+      <span className="deck-counter-utc">{formatUtc(pb.mode === 'live' ? nowMs : tMs, nowMs)}</span>
     </button>
   )
 }

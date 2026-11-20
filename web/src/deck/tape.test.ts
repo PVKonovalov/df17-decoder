@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Playback, Stats } from '../api/types'
 import {
   formatCounter,
+  formatUtc,
   isTyping,
   keyCommand,
   nextSpeed,
@@ -20,6 +21,26 @@ describe('formatCounter', () => {
     const now = local(2026, 11, 20, 15, 0, 0)
     expect(formatCounter(local(2026, 11, 20, 9, 5, 7), now)).toBe('09:05:07')
     expect(formatCounter(local(2026, 11, 19, 23, 59, 59), now)).toBe('2026-11-19 23:59:59')
+  })
+
+  it('adds a UTC line, with its date when the days differ', () => {
+    const utc = (ms: number) => {
+      const d = new Date(ms)
+      const p = (n: number) => String(n).padStart(2, '0')
+      return {
+        date: `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`,
+        time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`,
+        sameDay: d.getUTCDate() === d.getDate(),
+      }
+    }
+    const now = local(2026, 11, 20, 15, 0, 0)
+    const noon = local(2026, 11, 20, 12, 0, 0) // the same day in UTC for any zone within ±11 h
+    expect(formatUtc(noon, now)).toBe(utc(noon).time)
+    const yesterday = local(2026, 11, 19, 12, 0, 0) // the local counter shows a date, so does UTC
+    expect(formatUtc(yesterday, now)).toBe(`${utc(yesterday).date} ${utc(yesterday).time}`)
+    const late = local(2026, 11, 20, 23, 59, 0) // past midnight UTC east of Greenwich, before it west
+    const u = utc(late)
+    expect(formatUtc(late, now)).toBe(u.sameDay ? u.time : `${u.date} ${u.time}`)
   })
 
   it('round-trips the datetime-local value', () => {

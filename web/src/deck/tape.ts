@@ -20,6 +20,17 @@ export function formatCounter(ms: number, nowMs: number): string {
   return date === localDate(nowMs) ? localTime(ms) : `${date} ${localTime(ms)}`
 }
 
+/**
+ * formatUtc returns the UTC line under the tape counter: "HH:MM:SS UTC", with the UTC date when the local counter
+ * shows a date or the UTC date differs from the local one.
+ */
+export function formatUtc(ms: number, nowMs: number): string {
+  const d = new Date(ms)
+  const date = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+  const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`
+  return date !== localDate(ms) || localDate(ms) !== localDate(nowMs) ? `${date} ${time}` : time
+}
+
 /** toInputValue returns ms as a datetime-local input value with seconds. */
 export function toInputValue(ms: number): string {
   return `${localDate(ms)}T${localTime(ms)}`
