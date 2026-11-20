@@ -281,6 +281,8 @@ func (r *Recorder) closeSegment() {
 }
 
 // flush pushes the active segment to the file, applies the disk guard and logs recovery from a failure streak.
+// LastFlush moves on every successful tick, also when nothing new arrived: it is when the tape was last known to
+// hold everything received, so a quiet sky doesn't look like a stuck writer.
 func (r *Recorder) flush() {
 	if s := r.cur; s != nil && s.dirty {
 		if err := s.gz.Flush(); err != nil {
@@ -288,12 +290,14 @@ func (r *Recorder) flush() {
 			r.closeSegment()
 		} else {
 			s.dirty = false
-			r.lastFlush.Store(r.opt.Now().UnixNano())
 			if r.failing {
 				r.opt.Logger.Info("tape writes work again", "dir", r.opt.Dir)
 				r.failing = false
 			}
 		}
+	}
+	if !r.failing {
+		r.lastFlush.Store(r.opt.Now().UnixNano())
 	}
 	r.guard()
 }

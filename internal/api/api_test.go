@@ -237,7 +237,15 @@ func TestHealthz(t *testing.T) {
 	}
 	f.src.LastFrame = time.Now().Add(-31 * time.Second)
 	if rec, _ := f.get(t, "/healthz"); rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("stale frame: %d, want 503", rec.Code)
+		t.Errorf("stale frame, disconnected: %d, want 503", rec.Code)
+	}
+	f.src.Connected = true // a quiet sky: connected, nothing heard
+	if rec, _ := f.get(t, "/healthz"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "idle") {
+		t.Errorf("stale frame, connected: %d %s, want 200 idle", rec.Code, rec.Body)
+	}
+	f.src.LastFrame = time.Time{}
+	if rec, _ := f.get(t, "/healthz"); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("connected, never a frame: %d, want 503", rec.Code)
 	}
 }
 

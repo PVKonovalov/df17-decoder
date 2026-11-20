@@ -38,7 +38,11 @@ it('cycles the speeds', () => {
 
 describe('recState', () => {
   const now = Date.parse('2026-11-20T10:00:00Z')
-  const base = { tapeRecording: true, tapePaused: false, tapeDropped: 0, tapeWriteErrors: 0, tapeLastFlush: '2026-11-20T09:59:58Z' }
+  const source = { url: 'beast://pi:30005', connected: true, reconnects: 0, malformedLines: 0, lastFrame: '2026-11-20T09:59:59Z' }
+  const base = {
+    serverTime: '2026-11-20T10:00:00Z', source,
+    tapeRecording: true, tapePaused: false, tapeDropped: 0, tapeWriteErrors: 0, tapeLastFlush: '2026-11-20T09:59:58Z',
+  }
   const st = (extra: Partial<Stats>) => ({ ...base, ...extra }) as Stats
 
   it('is grey without a tape, red while recording and flushing', () => {
@@ -53,6 +57,16 @@ describe('recState', () => {
     expect(recState(st({ tapeWriteErrors: 1 }), now).title).toContain('1 write errors')
     expect(recState(st({ tapeLastFlush: '2026-11-20T09:58:00Z' }), now).title).toContain('no recent flush')
     expect(recState(st({ tapeRecording: false }), now).title).toContain('not recording')
+    expect(recState(st({ source: { ...source, connected: false } }), now).title).toContain('source is disconnected')
+  })
+
+  it('stays red in a quiet sky, and judges ages by the server clock', () => {
+    const quiet = recState(st({ source: { ...source, lastFrame: '2026-11-20T09:48:00Z' } }), now)
+    expect(quiet).toEqual({ state: 'rec', title: 'Recording; nothing heard for 12 min (a quiet sky?)' })
+    expect(recState(st({ source: { url: 'x', connected: true, reconnects: 0, malformedLines: 0 } }), now).title).toContain('first frame')
+    // the browser runs 5 minutes ahead of the server: the server's clock decides
+    expect(recState(st({}), now + 300_000).state).toBe('rec')
+    expect(recState(st({ serverTime: 'bogus' }), now + 300_000).title).toContain('no recent flush')
   })
 })
 

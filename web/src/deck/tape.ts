@@ -38,12 +38,21 @@ export function nextSpeed(speed: number): (typeof PLAYBACK_SPEEDS)[number] {
 
 /** REC_FLUSH_STALE_MS is how old the last tape flush may be for the indicator to stay red. */
 export const REC_FLUSH_STALE_MS = 30_000
+/** QUIET_MS is how long the source may stay silent before the indicator mentions it. */
+export const QUIET_MS = 30_000
+
+/** silence formats how long nothing was heard: "45 s", "12 min", "3 h". */
+function silence(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`
+}
 
 export type RecState = 'off' | 'rec' | 'warn'
 
 /**
  * recState returns the ● REC indicator: off (grey) when the tape is disabled, warn (amber, with the reasons) when
- * recording is paused or not flushing or frames were dropped or failed to write, else rec (red).
+ * recording is paused or not flushing, frames were dropped or failed to write, or the source is disconnected, else
+ * rec (red), also while a connected source is quiet. Ages use the server's clock (serverTime), nowMs only without it.
  */
 export function recState(stats: Stats | null, nowMs: number): { state: RecState; title: string } {
   if (stats?.tapeRecording === undefined) {
@@ -55,9 +64,15 @@ export function recState(stats: Stats | null, nowMs: number): { state: RecState;
   } else if (!stats.tapeRecording) {
     reasons.push('not recording')
   }
+  const server = Date.parse(stats.serverTime)
+  const now = Number.isNaN(server) ? nowMs : server
   const flushed = stats.tapeLastFlush === undefined ? NaN : Date.parse(stats.tapeLastFlush)
-  if (stats.tapeRecording && !(nowMs - flushed <= REC_FLUSH_STALE_MS)) {
+  if (stats.tapeRecording && !(now - flushed <= REC_FLUSH_STALE_MS)) {
     reasons.push('no recent flush to disk')
+  }
+  const src = stats.source as Stats['source'] | undefined
+  if (src !== undefined && !src.connected) {
+    reasons.push('the source is disconnected: nothing to record')
   }
   if ((stats.tapeDropped ?? 0) > 0) {
     reasons.push(`${stats.tapeDropped} frames dropped (queue full)`)
@@ -65,9 +80,17 @@ export function recState(stats: Stats | null, nowMs: number): { state: RecState;
   if ((stats.tapeWriteErrors ?? 0) > 0) {
     reasons.push(`${stats.tapeWriteErrors} write errors`)
   }
-  return reasons.length > 0
-    ? { state: 'warn', title: `Recording problem: ${reasons.join('; ')}` }
-    : { state: 'rec', title: 'Recording every received frame to the tape' }
+  if (reasons.length > 0) {
+    return { state: 'warn', title: `Recording problem: ${reasons.join('; ')}` }
+  }
+  const last = src?.lastFrame === undefined ? NaN : Date.parse(src.lastFrame)
+  if (src !== undefined && Number.isNaN(last)) {
+    return { state: 'rec', title: 'Recording; waiting for the first frame from the source' }
+  }
+  if (now - last > QUIET_MS) {
+    return { state: 'rec', title: `Recording; nothing heard for ${silence(now - last)} (a quiet sky?)` }
+  }
+  return { state: 'rec', title: 'Recording every received frame to the tape' }
 }
 
 /** isTyping reports whether keyboard input goes to a form field, where the deck's shortcuts don't apply. */

@@ -244,6 +244,7 @@ type sourceStatus struct {
 
 type statsResponse struct {
 	Version            string         `json:"version"`
+	ServerTime         time.Time      `json:"serverTime"` // the clock the other times compare with
 	UptimeSeconds      float64        `json:"uptimeSeconds"`
 	Source             sourceStatus   `json:"source"`
 	Frames             uint64         `json:"frames"`
@@ -315,6 +316,7 @@ func (s *server) statsSnapshot() statsResponse {
 	src := s.Source()
 	resp := statsResponse{
 		Version:       s.Version,
+		ServerTime:    now,
 		UptimeSeconds: math.Round(st.Uptime.Seconds()),
 		Source: sourceStatus{
 			URL:            s.SourceURL,
@@ -407,13 +409,20 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// healthz serves GET /healthz: 200 while frames arrive, and while the source stays connected after delivering
+// frames (a quiet sky sends nothing); 503 before the first frame, or when the source is down and silent.
 func (s *server) healthz(w http.ResponseWriter, _ *http.Request) {
-	last := s.Source().LastFrame
-	if last.IsZero() || s.Now().Sub(last) > HealthWindow {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "no frames from source in the last 30s"})
-		return
+	src := s.Source()
+	switch {
+	case src.LastFrame.IsZero():
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "no frames from the source yet"})
+	case s.Now().Sub(src.LastFrame) <= HealthWindow:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	case src.Connected:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "idle: connected, no frames in the last 30s"})
+	default:
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "source disconnected, no frames in the last 30s"})
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

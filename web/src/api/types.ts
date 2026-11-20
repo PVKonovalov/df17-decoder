@@ -134,6 +134,7 @@ export interface MapConfig {
 /** api.statsResponse */
 export interface Stats {
   version: string
+  serverTime: string // RFC 3339: the clock the other times in stats compare with
   uptimeSeconds: number
   source: {
     url: string

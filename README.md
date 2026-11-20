@@ -154,7 +154,7 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/stats/altitude?from=&to=` | Stored positions per altitude band: ground, 5000 ft bands up to ≥40k, unknown |
 | `GET /api/stats/notable?from=&to=&limit=` | Emergency squawks and first sightings of ICAO addresses: counts and up to `limit` (100) events, emergencies first, then newest |
 | `GET /api/tape/extent` | The tape's oldest and newest recorded time and its recorded spans (silences over 60 s split them); 503 when the tape is disabled |
-| `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
+| `GET /healthz` | 200 if a frame arrived within the last 30 s, or the source is still connected after delivering frames (`idle`: a quiet sky sends nothing); 503 before the first frame, or when the source is disconnected and silent. A decoder that stays connected but stops sending looks idle, so check `source.lastFrame` in `/api/stats` for that |
 
 The `/api/history` endpoints return 503 when history is disabled. Every other path serves the [web UI](#web-ui)
 embedded in the binary. Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
@@ -340,8 +340,10 @@ and `*.tape.gz*` are ignored by git and Docker builds; don't publish tape files.
 
 The **tape deck** under the header:
 
-- **● REC** is red while recording, amber when frames are dropped, writes fail or recording is paused because the
-  disk is low (hover for the reason), and grey when the tape is disabled.
+- **● REC** is red while recording, also in a quiet sky (the tooltip then says how long nothing was heard); amber
+  when frames are dropped, writes fail, the writer stops flushing, the source is disconnected or recording is
+  paused because the disk is low (hover for the reason); grey when the tape is disabled. Ages are measured on the
+  server's clock (`serverTime` in `/api/stats`), so a browser with a wrong clock doesn't raise false alarms.
 - **⏮** goes to the oldest recording, **⏪** back 10 s (Shift: 1 min). In playback also **⏯** play/pause,
   **⏩** speed (1×, 2×, 4×, 8×, 16×, 60×) and **⏭ LIVE**.
 - The **tape counter** shows the playback time (with the date when it isn't today); click it to type a date and

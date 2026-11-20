@@ -8,6 +8,7 @@ afterEach(cleanup)
 
 const stats: Stats = {
   version: 'v1.0.0',
+  serverTime: '2026-11-20T10:00:00Z',
   uptimeSeconds: 5,
   source: { url: 'beast://pi:30005', connected: true, reconnects: 0, malformedLines: 0 },
   frames: 10,

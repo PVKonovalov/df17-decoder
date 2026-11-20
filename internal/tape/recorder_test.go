@@ -318,3 +318,27 @@ func TestRecorder_WriteFailuresLoggedOncePerStreak(t *testing.T) {
 		t.Errorf("no recovery message; log %s", &buf)
 	}
 }
+
+func TestRecorder_FlushWhileIdle(t *testing.T) {
+	now := t0
+	r := newRecorder(t, Options{Now: func() time.Time { return now }})
+	r.flush() // nothing received yet: the tape is still up to date
+	if st := r.Stats(); !st.LastFlush.Equal(t0) {
+		t.Errorf("idle flush: %v", st.LastFlush)
+	}
+	r.write(frame(t0, 1))
+	now = t0.Add(5 * time.Second)
+	r.flush()
+	now = t0.Add(10 * time.Second)
+	r.flush() // a quiet sky
+	if st := r.Stats(); !st.LastFlush.Equal(t0.Add(10 * time.Second)) {
+		t.Errorf("quiet flush: %v", st.LastFlush)
+	}
+	r.failing = true // writes fail: the last good flush stays
+	now = t0.Add(15 * time.Second)
+	r.flush()
+	if st := r.Stats(); !st.LastFlush.Equal(t0.Add(10 * time.Second)) {
+		t.Errorf("failing flush moved: %v", st.LastFlush)
+	}
+	r.closeSegment()
+}
