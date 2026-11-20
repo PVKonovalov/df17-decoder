@@ -10,3 +10,7 @@
 /testdata/busy.bin
 /web/node_modules
 /web/dist/app
+/coverage.json
+*.db
+*.db-wal
+*.db-shm

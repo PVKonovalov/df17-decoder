@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 	"github.com/gorilla/websocket"
 )
 
@@ -18,11 +19,17 @@ const (
 	defaultGridInterval     = time.Minute
 )
 
-// wsMessage is one WebSocket text message: Type is "receiver", "map", "coverage", "coverageGrid", "aircraft"
-// or "stats".
+// wsMessage is one WebSocket text message: Type is "receiver", "map", "trails", "coverage", "coverageGrid",
+// "trailPoints", "aircraft" or "stats".
 type wsMessage struct {
 	Type string `json:"type"`
 	Data any    `json:"data"`
+}
+
+// wsTrails is the "trails" message: every current trail and the window (Go duration) the client trims them to.
+type wsTrails struct {
+	Window string                          `json:"window"`
+	Trails map[string][]tracker.TrackPoint `json:"trails"`
 }
 
 // Default CheckOrigin: only same-origin browsers may connect (the Vite dev proxy rewrites Origin).
@@ -34,10 +41,10 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// ws serves GET /api/ws: "receiver" and "map" once, then "aircraft" (sorted by ICAO) and "stats" immediately and every
-// StreamInterval, "coverage" immediately and every CoverageInterval, and "coverageGrid" immediately and every
-// GridInterval, until the client goes away or the server
-// shuts down (close 1001). Client messages are ignored; a client that stops answering pings or reading is dropped.
+// ws serves GET /api/ws: "receiver", "map" and "trails" once, then "trailPoints" (points not sent yet on this
+// connection), "aircraft" (sorted by ICAO) and "stats" immediately and every StreamInterval, "coverage" immediately
+// and every CoverageInterval, and "coverageGrid" immediately and every GridInterval, until the client goes away or
+// the server shuts down (close 1001). Client messages are ignored; a client that stops answering pings or reading is dropped.
 func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -63,15 +70,20 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 		_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 		return conn.WriteJSON(wsMessage{Type: typ, Data: data})
 	}
+	sent := map[string]int64{}
+	trails := wsTrails{Window: s.Tracker.TrailWindow().String(), Trails: s.Tracker.TrailPointsSince(sent)}
 	update := func() error {
+		if err := send("trailPoints", s.Tracker.TrailPointsSince(sent)); err != nil {
+			return err
+		}
 		if err := send("aircraft", s.aircraftByICAO()); err != nil {
 			return err
 		}
 		return send("stats", s.statsSnapshot())
 	}
 
-	if send("receiver", s.Receiver) != nil || send("map", s.Map) != nil || send("coverage", s.Coverage.Snapshot()) != nil ||
-		send("coverageGrid", s.Coverage.Grid()) != nil || update() != nil {
+	if send("receiver", s.Receiver) != nil || send("map", s.Map) != nil || send("trails", trails) != nil ||
+		send("coverage", s.Coverage.Snapshot()) != nil || send("coverageGrid", s.Coverage.Grid()) != nil || update() != nil {
 		return
 	}
 	ticker := time.NewTicker(s.StreamInterval)

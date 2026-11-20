@@ -35,3 +35,8 @@
 - 2026-11-19: systemd unit runs in its state dir (relative coverage.file works); unwritable coverage.file fails at start (exit 2); save failures logged once.
 - 2026-11-19: Header Table/Legend switches hide the aircraft table (full-width map) and the map legend; remembered per browser.
 - 2026-11-19: UI header shows the server version next to the title (was a hover tooltip).
+- 2026-11-20: Server-side track buffer: thinned TrackPoints, trails.window/minInterval config, flight segmentation (gap, callsign split, Mode-S samples); *.db ignored.
+- 2026-11-20: /api/ws sends server trails on connect (trails) and only new points after (trailPoints); UI trails come from the server, trimmed to trails.window.
+- 2026-11-20: Optional SQLite flight history (history config, modernc.org/sqlite): non-blocking batched writer, schema v1 + migrations, crash recovery, retention, stats.
+- 2026-11-20: History read API: /api/history/flights, /flights/{id}, /at?t= (playback query); read-only connections; country derived from ICAO (schema v2).
+- 2026-11-20: Docs for trails and flight history (README: config, disk use, privacy; CLAUDE.md); systemd/Docker notes; *.db kept out of Docker builds.

@@ -34,6 +34,25 @@ tracker:
   # How long an address seen in a valid DF11/17/18 is trusted for address/parity replies (DF0/4/5/16/20/21).
   knownAddressTTL: 60s
 
+trails:
+  # Length of each aircraft's trail kept in memory and sent to the UI (data time).
+  window: 10m
+  # Minimum time between kept track points on a straight, level leg.
+  minInterval: 5s
+
+history:
+  # Write flights and thinned track points to an SQLite database.
+  enabled: false
+  # Relative to the working directory (the state dir under systemd); Docker: /var/lib/df17-decoder/history.db
+  # The directory must exist and be writable when enabled, or the service refuses to start (exit code 2).
+  file: history.db
+  # Batch interval for database writes.
+  flushInterval: 15s
+  # A gap longer than this after an aircraft expires closes its flight.
+  flightGap: 10m
+  # Flights older than this are deleted hourly; 0 keeps everything.
+  retention: 720h
+
 api:
   # HTTP listen address.
   listen: ":8080"

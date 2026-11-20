@@ -21,6 +21,12 @@ type Options struct {
 	Logger          *slog.Logger
 	Stats           *stats.Stats
 	Coverage        CoverageRecorder // optional; receives every accepted position
+
+	TrailWindow      time.Duration // trail length kept in memory, data time; 0 = 10m
+	TrailMinInterval time.Duration // minimum time between kept points on a straight, level leg; 0 = 5s
+	FlightGap        time.Duration // a flight stays open this long after its aircraft expires; 0 = 10m
+	Flights          FlightSink    // optional; receives flights, track points and samples
+	LastFlightID     int64         // flight IDs continue after this one
 }
 
 // CoverageRecorder records accepted positions (altitude in ft and frame signal in dBFS, both may be nil) at
@@ -37,6 +43,7 @@ type entry struct {
 	commBTime      time.Time           // data time of the last accepted Comm-B 5,0 or 6,0
 	signal         [rssiWindow]float64 // linear power of the last frames, ring buffer
 	signalN        int                 // frames stored in signal so far
+	fl             *flight             // the aircraft's open flight
 }
 
 // rssiWindow is how many frames Aircraft.RSSI averages, as dump1090 does.
@@ -70,6 +77,9 @@ type Tracker struct {
 	known    *KnownAddresses
 	lastData time.Time
 	lastWall time.Time
+
+	flights      map[uint32]*flight // open flights, outliving their aircraft entries by FlightGap
+	nextFlightID int64
 }
 
 func New(opt Options) *Tracker {
@@ -79,11 +89,22 @@ func New(opt Options) *Tracker {
 	if opt.Stats == nil {
 		opt.Stats = stats.New(time.Now())
 	}
+	if opt.TrailWindow <= 0 {
+		opt.TrailWindow = defaultTrailWindow
+	}
+	if opt.TrailMinInterval <= 0 {
+		opt.TrailMinInterval = defaultTrailMinInterval
+	}
+	if opt.FlightGap <= 0 {
+		opt.FlightGap = defaultFlightGap
+	}
 	return &Tracker{
-		opt:      opt,
-		wall:     time.Now,
-		aircraft: map[uint32]*entry{},
-		known:    NewKnownAddresses(opt.KnownAddressTTL),
+		opt:          opt,
+		wall:         time.Now,
+		aircraft:     map[uint32]*entry{},
+		known:        NewKnownAddresses(opt.KnownAddressTTL),
+		flights:      map[uint32]*flight{},
+		nextFlightID: opt.LastFlightID,
 	}
 }
 
@@ -135,6 +156,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	if m.Time.After(a.LastSeen) {
 		a.LastSeen = m.Time
 	}
+	e.fl = t.flightFor(m.ICAO, a, m.Time)
 	a.Messages++
 	a.MessagesByDF[m.DF]++
 	if rssi != nil {
@@ -200,6 +222,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	if s := m.Surveillance; s != nil {
 		t.updateSurveillance(e, m, s)
 	}
+	t.syncFlight(m.ICAO, e, m.Time)
 
 	t.opt.Stats.AddMessage(t.lastWall)
 	return true
@@ -482,6 +505,7 @@ func (t *Tracker) updatePosition(e *entry, pos Position, err error, rssi *float6
 	a.DistanceNm = new(round(geo.DistanceNm(r, pos.Point), 2))
 	a.Bearing = new(round(geo.Bearing(r, pos.Point), 1))
 	a.HasPosition = true
+	t.addTrackPoint(e, pos)
 
 	attrs := []any{
 		"icao", a.ICAO, "lat", round(pos.Lat, 5), "lon", round(pos.Lon, 5), "method", pos.Method,
@@ -532,7 +556,8 @@ func (t *Tracker) setEmergency(a *Aircraft, em modes.Emergency, squawk string) {
 	t.opt.Logger.Info("emergency", "icao", a.ICAO, "state", state, "squawk", squawk)
 }
 
-// Expire removes aircraft not heard for longer than TTL and returns how many were removed.
+// Expire removes aircraft not heard for longer than TTL, closes flights not heard for longer than TTL+FlightGap,
+// and returns how many aircraft were removed.
 func (t *Tracker) Expire() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -545,6 +570,7 @@ func (t *Tracker) Expire() int {
 			n++
 		}
 	}
+	t.expireFlights(now)
 	t.known.Expire(now)
 	return n
 }

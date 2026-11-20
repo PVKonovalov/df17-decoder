@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch } from 'react'
 import type { Action } from '../state/reducer'
-import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats } from './types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats, TrackPoint } from './types'
 
 export const RECONNECT_MIN_MS = 1000
 export const RECONNECT_MAX_MS = 30_000
@@ -18,6 +18,20 @@ export function reconnectDelay(attempt: number): number {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+
+const durationUnitMs: Record<string, number> = { h: 3_600_000, m: 60_000, s: 1000, ms: 1, us: 1e-3, µs: 1e-3, ns: 1e-6 }
+
+/** parseDuration converts a Go duration string ("10m0s", "1h30m", "500ms") to milliseconds; NaN when invalid. */
+export function parseDuration(s: string): number {
+  if (!/^(\d+(\.\d+)?(ms|us|µs|ns|h|m|s))+$/.test(s)) {
+    return NaN
+  }
+  let ms = 0
+  for (const [, n, unit] of s.matchAll(/(\d+(?:\.\d+)?)(ms|us|µs|ns|h|m|s)/g)) {
+    ms += Number(n) * (durationUnitMs[unit ?? ''] ?? NaN)
+  }
+  return ms
+}
 
 /** toAction turns one /api/ws text message into a reducer action; unknown or malformed messages give null. */
 export function toAction(raw: unknown): Action | null {
@@ -37,6 +51,17 @@ export function toAction(raw: unknown): Action | null {
   switch (type) {
     case 'aircraft':
       return Array.isArray(data) ? { type: 'snapshot', aircraft: data as Aircraft[] } : null
+    case 'trails': {
+      if (!isObject(data) || typeof data.window !== 'string' || !isObject(data.trails)) {
+        return null
+      }
+      const windowMs = parseDuration(data.window)
+      return windowMs > 0 ? { type: 'trails', windowMs, trails: data.trails as Record<string, TrackPoint[]> } : null
+    }
+    case 'trailPoints':
+      return isObject(data) && !Array.isArray(data)
+        ? { type: 'trailPoints', points: data as Record<string, TrackPoint[]> }
+        : null
     case 'receiver':
       return isObject(data) ? { type: 'receiver', receiver: data as unknown as Receiver } : null
     case 'map':

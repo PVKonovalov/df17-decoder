@@ -1,16 +1,11 @@
-import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats } from '../api/types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats, TrackPoint } from '../api/types'
 
-export const TRAIL_MAX_AGE_MS = 5 * 60 * 1000
-export const TRAIL_MAX_POINTS = 1000
+/** Trail window until the server's "trails" message arrives. */
+export const DEFAULT_TRAIL_WINDOW_MS = 10 * 60 * 1000
 
 export type ConnState = 'connecting' | 'connected' | 'reconnecting' | 'down'
 
-export interface TrailPoint {
-  lat: number
-  lon: number
-  alt: number | undefined // ft, baro preferred
-  t: number // posTime, ms since epoch
-}
+export type TrailPoint = TrackPoint
 
 export interface State {
   conn: ConnState
@@ -20,7 +15,8 @@ export interface State {
   coverageGrid: CoverageGrid | null
   stats: Stats | null
   aircraft: ReadonlyMap<string, Aircraft> // keyed by ICAO, in server order (sorted by ICAO)
-  trails: ReadonlyMap<string, readonly TrailPoint[]>
+  trails: ReadonlyMap<string, readonly TrailPoint[]> // from the server's track buffer, by ICAO
+  trailWindowMs: number // data time kept before each trail's newest point
   selected: string | null
   pendingSelect: string | null // aircraft to select once a snapshot contains it (from a shared link)
   panSeq: number // incremented when the map should pan to the selection (selection from the table)
@@ -33,6 +29,8 @@ export type Action =
   | { type: 'coverage'; coverage: Coverage }
   | { type: 'coverageGrid'; grid: CoverageGrid }
   | { type: 'stats'; stats: Stats }
+  | { type: 'trails'; windowMs: number; trails: Record<string, TrailPoint[]> }
+  | { type: 'trailPoints'; points: Record<string, TrailPoint[]> }
   | { type: 'snapshot'; aircraft: Aircraft[] }
   | { type: 'select'; icao: string; pan?: boolean }
   | { type: 'clearSelection' }
@@ -46,6 +44,7 @@ export const initialState: State = {
   stats: null,
   aircraft: new Map(),
   trails: new Map(),
+  trailWindowMs: DEFAULT_TRAIL_WINDOW_MS,
   selected: null,
   pendingSelect: null,
   panSeq: 0,
@@ -65,6 +64,18 @@ export function reducer(state: State, action: Action): State {
       return { ...state, coverageGrid: action.grid }
     case 'stats':
       return { ...state, stats: action.stats }
+    case 'trails': {
+      const trails = new Map<string, readonly TrailPoint[]>()
+      for (const [icao, points] of Object.entries(action.trails)) {
+        const trail = appendTrail([], points, action.windowMs)
+        if (trail.length > 0) {
+          trails.set(icao, trail)
+        }
+      }
+      return { ...state, trails, trailWindowMs: action.windowMs }
+    }
+    case 'trailPoints':
+      return applyTrailPoints(state, action.points)
     case 'snapshot':
       return applySnapshot(state, action.aircraft)
     case 'select':
@@ -85,19 +96,18 @@ export function reducer(state: State, action: Action): State {
 }
 
 /**
- * applySnapshot replaces the aircraft table with a full snapshot, extends trails with new positions and drops
- * trails and the selection of aircraft that are gone. A pending selection is applied (with a pan when the
- * aircraft has a position) once the aircraft is in the snapshot.
+ * applySnapshot replaces the aircraft table with a full snapshot and drops trails and the selection of aircraft
+ * that are gone. A pending selection is applied (with a pan when the aircraft has a position) once the aircraft is
+ * in the snapshot.
  */
 function applySnapshot(state: State, list: Aircraft[]): State {
   const aircraft = new Map<string, Aircraft>()
-  const trails = new Map<string, readonly TrailPoint[]>()
   for (const a of list) {
     aircraft.set(a.icao, a)
-    const trail = extendTrail(state.trails.get(a.icao) ?? [], a)
-    if (trail.length > 0) {
-      trails.set(a.icao, trail)
-    }
+  }
+  let trails = state.trails
+  if ([...trails.keys()].some((icao) => !aircraft.has(icao))) {
+    trails = new Map([...trails].filter(([icao]) => aircraft.has(icao)))
   }
   const pending = state.pendingSelect === null ? undefined : aircraft.get(state.pendingSelect)
   if (pending !== undefined) {
@@ -114,23 +124,32 @@ function applySnapshot(state: State, list: Aircraft[]): State {
   return { ...state, aircraft, trails, selected }
 }
 
+/** applyTrailPoints appends new server points to the trails; the state is unchanged when nothing is new. */
+function applyTrailPoints(state: State, points: Record<string, TrailPoint[]>): State {
+  let trails: Map<string, readonly TrailPoint[]> | undefined
+  for (const [icao, pts] of Object.entries(points)) {
+    const old = state.trails.get(icao) ?? []
+    const trail = appendTrail(old, pts, state.trailWindowMs)
+    if (trail !== old) {
+      trails ??= new Map(state.trails)
+      trails.set(icao, trail)
+    }
+  }
+  return trails === undefined ? state : { ...state, trails }
+}
+
 /**
- * extendTrail appends the aircraft's position if it is newer than the trail's last point and drops points
- * older than TRAIL_MAX_AGE_MS before the newest one (data time, so replays trim correctly).
- * Returns the same array when nothing changed.
+ * appendTrail appends the points newer than the trail's last one and drops points older than windowMs before the
+ * newest (data time, so replays trim correctly). Returns the same array when nothing was appended.
  */
-export function extendTrail(trail: readonly TrailPoint[], a: Aircraft): readonly TrailPoint[] {
-  if (a.lat === undefined || a.lon === undefined || a.posTime === undefined) {
+export function appendTrail(trail: readonly TrailPoint[], points: readonly TrailPoint[], windowMs: number): readonly TrailPoint[] {
+  const last = trail.at(-1)?.t ?? -Infinity
+  const fresh = points.filter((p) => p.t > last)
+  const newest = fresh.at(-1)
+  if (newest === undefined) {
     return trail
   }
-  const t = Date.parse(a.posTime)
-  const last = trail.at(-1)
-  if (Number.isNaN(t) || (last !== undefined && t <= last.t)) {
-    return trail
-  }
-  const next = [...trail, { lat: a.lat, lon: a.lon, alt: a.altBaro ?? a.altGnss, t }]
-  const cutoff = t - TRAIL_MAX_AGE_MS
-  let start = next.findIndex((p) => p.t >= cutoff)
-  start = Math.max(start, next.length - TRAIL_MAX_POINTS)
+  const next = [...trail, ...fresh]
+  const start = next.findIndex((p) => p.t >= newest.t - windowMs)
   return start > 0 ? next.slice(start) : next
 }

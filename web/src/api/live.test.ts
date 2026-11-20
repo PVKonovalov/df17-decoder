@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Action } from '../state/reducer'
-import { connectLive, DOWN_AFTER, reconnectDelay, toAction, wsUrl } from './live'
+import { connectLive, DOWN_AFTER, parseDuration, reconnectDelay, toAction, wsUrl } from './live'
 
 describe('wsUrl', () => {
   it('uses ws: or wss: on the page host', () => {
@@ -12,6 +12,18 @@ describe('wsUrl', () => {
 describe('reconnectDelay', () => {
   it('doubles from 1 s and caps at 30 s', () => {
     expect([0, 1, 2, 3, 4, 5, 10].map(reconnectDelay)).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000])
+  })
+})
+
+describe('parseDuration', () => {
+  it('parses Go durations', () => {
+    expect(parseDuration('10m0s')).toBe(600_000)
+    expect(parseDuration('1h30m')).toBe(5_400_000)
+    expect(parseDuration('1.5s')).toBe(1500)
+    expect(parseDuration('500ms')).toBe(500)
+    for (const bad of ['', '10', 'm', '10x', '-1s']) {
+      expect(parseDuration(bad)).toBeNaN()
+    }
   })
 })
 
@@ -29,10 +41,14 @@ describe('toAction', () => {
     expect(toAction(JSON.stringify({ type: 'coverage', data: coverage }))).toEqual({ type: 'coverage', coverage })
     const grid = { receiver: { lat: 1, lon: 2 }, bucketDeg: 2, ringNm: 5, bands: [] }
     expect(toAction(JSON.stringify({ type: 'coverageGrid', data: grid }))).toEqual({ type: 'coverageGrid', grid })
+    const trails = { '738001': [{ t: 1, lat: 2, lon: 3 }] }
+    const windowMs = 600_000
+    expect(toAction(JSON.stringify({ type: 'trails', data: { window: '10m0s', trails } }))).toEqual({ type: 'trails', windowMs, trails })
+    expect(toAction(JSON.stringify({ type: 'trailPoints', data: trails }))).toEqual({ type: 'trailPoints', points: trails })
   })
 
   it('ignores unknown, malformed and binary messages', () => {
-    for (const raw of ['{"type":"future","data":{}}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', '{"type":"coverage","data":{"bucketDeg":2}}', '{"type":"coverageGrid","data":{"bucketDeg":2,"ringNm":5}}', 'not json', '42', null]) {
+    for (const raw of ['{"type":"future","data":{}}', '{"type":"trails","data":{"window":"soon","trails":{}}}', '{"type":"trailPoints","data":[]}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', '{"type":"coverage","data":{"bucketDeg":2}}', '{"type":"coverageGrid","data":{"bucketDeg":2,"ringNm":5}}', 'not json', '42', null]) {
       expect(toAction(raw)).toBeNull()
     }
     expect(toAction(new ArrayBuffer(2))).toBeNull()

@@ -84,6 +84,38 @@ export const aircraftKeys = {
   adsb: true,
 } as const satisfies Record<keyof Aircraft, true>
 
+/** tracker.TrackPoint: one thinned trail point; unknown values and false flags are omitted */
+export interface TrackPoint {
+  t: number // ms since epoch, data time
+  lat: number
+  lon: number
+  alt?: number // ft, barometric unless altGnss
+  altGnss?: boolean
+  gs?: number // kt
+  track?: number // degrees true
+  vr?: number // ft/min
+  onGround?: boolean
+}
+
+/** Every TrackPoint key, compared with trackpoint.fixture.json by the contract test. */
+export const trackPointKeys = {
+  t: true,
+  lat: true,
+  lon: true,
+  alt: true,
+  altGnss: true,
+  gs: true,
+  track: true,
+  vr: true,
+  onGround: true,
+} as const satisfies Record<keyof TrackPoint, true>
+
+/** api.wsTrails: every current trail and the window (Go duration, e.g. "10m0s") to trim them to */
+export interface Trails {
+  window: string
+  trails: Record<string, TrackPoint[]>
+}
+
 /** api.Receiver */
 export interface Receiver {
   lat: number
@@ -124,6 +156,12 @@ export interface Stats {
   commBAmbiguous: number // DF20/21 replies that fit more than one Comm-B register
   commBRejected: number // inferred Comm-B reports inconsistent with the aircraft's recent state
   aircraft: number
+  // flight history, present only when history.enabled
+  historyFlightsOpen?: number
+  historyPointsWritten?: number
+  historyDropped?: number // events dropped because the write queue was full
+  historyWriteErrors?: number
+  historyLastFlush?: string // RFC 3339
 }
 
 /** coverage.Point: the furthest position seen in one bearing bucket */
@@ -163,5 +201,7 @@ export type WsMessage =
   | { type: 'map'; data: MapConfig }
   | { type: 'coverage'; data: Coverage }
   | { type: 'coverageGrid'; data: CoverageGrid }
+  | { type: 'trails'; data: Trails }
+  | { type: 'trailPoints'; data: Record<string, TrackPoint[]> }
   | { type: 'aircraft'; data: Aircraft[] }
   | { type: 'stats'; data: Stats }

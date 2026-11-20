@@ -16,6 +16,7 @@ import (
 
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
+	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
@@ -46,6 +47,7 @@ type Deps struct {
 	UI       fs.FS // built web UI served at /; nil disables it
 	Tracker  *tracker.Tracker
 	Coverage *coverage.Coverage // range outline; nil serves an empty one
+	History  *history.Store     // flight history; nil when disabled
 	// CoverageInterval is how often /api/ws pushes the outline; 10 s when zero.
 	CoverageInterval time.Duration
 	// GridInterval is how often /api/ws pushes the coverage grid; 60 s when zero.
@@ -85,6 +87,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	mux.HandleFunc("GET /api/ws", s.ws)
+	mux.HandleFunc("GET /api/history/flights", s.historyFlights)
+	mux.HandleFunc("GET /api/history/flights/{id}", s.historyFlight)
+	mux.HandleFunc("GET /api/history/at", s.historyAt)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /api/map", s.mapConfig)
 	mux.HandleFunc("GET /api/coverage", s.coverage)
@@ -239,6 +244,16 @@ type statsResponse struct {
 	CommBAmbiguous     uint64         `json:"commBAmbiguous"`
 	CommBRejected      uint64         `json:"commBRejected"`
 	Aircraft           int            `json:"aircraft"`
+	*historyStats
+}
+
+// historyStats are in statsResponse only when history is enabled.
+type historyStats struct {
+	HistoryFlightsOpen   int64      `json:"historyFlightsOpen"`
+	HistoryPointsWritten uint64     `json:"historyPointsWritten"`
+	HistoryDropped       uint64     `json:"historyDropped"`
+	HistoryWriteErrors   uint64     `json:"historyWriteErrors"`
+	HistoryLastFlush     *time.Time `json:"historyLastFlush,omitempty"`
 }
 
 func (s *server) stats(w http.ResponseWriter, _ *http.Request) {
@@ -275,6 +290,18 @@ func (s *server) statsSnapshot() statsResponse {
 	}
 	if !src.LastFrame.IsZero() {
 		resp.Source.LastFrame = &src.LastFrame
+	}
+	if s.History != nil {
+		h := s.History.Stats()
+		resp.historyStats = &historyStats{
+			HistoryFlightsOpen:   h.FlightsOpen,
+			HistoryPointsWritten: h.PointsWritten,
+			HistoryDropped:       h.Dropped,
+			HistoryWriteErrors:   h.WriteErrors,
+		}
+		if !h.LastFlush.IsZero() {
+			resp.HistoryLastFlush = &h.LastFlush
+		}
 	}
 	return resp
 }

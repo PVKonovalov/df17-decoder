@@ -84,7 +84,7 @@ describe('staleness and rotation', () => {
 })
 
 describe('trailSegments', () => {
-  const pt = (lat: number, alt?: number): TrailPoint => ({ lat, lon: 23, alt, t: lat })
+  const pt = (lat: number, alt?: number): TrailPoint => ({ lat, lon: 23, t: lat, ...(alt !== undefined && { alt }) })
 
   it('groups by altitude bucket and joins segments', () => {
     const segs = trailSegments([pt(1, 1000), pt(2, 1100), pt(3, 5000), pt(4, 5100), pt(5)])

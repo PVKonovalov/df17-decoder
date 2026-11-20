@@ -39,6 +39,8 @@ type Config struct {
 	Receiver Receiver `yaml:"receiver"`
 	Decoder  Decoder  `yaml:"decoder"`
 	Tracker  Tracker  `yaml:"tracker"`
+	Trails   Trails   `yaml:"trails"`
+	History  History  `yaml:"history"`
 	API      API      `yaml:"api"`
 	Map      Map      `yaml:"map"`
 	Coverage Coverage `yaml:"coverage"`
@@ -66,6 +68,21 @@ type Decoder struct {
 type Tracker struct {
 	TTL             Duration `yaml:"ttl"`
 	KnownAddressTTL Duration `yaml:"knownAddressTTL"`
+}
+
+// Trails configures the per-aircraft track buffer.
+type Trails struct {
+	Window      Duration `yaml:"window"`
+	MinInterval Duration `yaml:"minInterval"`
+}
+
+// History configures the SQLite flight history.
+type History struct {
+	Enabled       bool     `yaml:"enabled"`
+	File          string   `yaml:"file"`
+	FlushInterval Duration `yaml:"flushInterval"`
+	FlightGap     Duration `yaml:"flightGap"`
+	Retention     Duration `yaml:"retention"`
 }
 
 type API struct {
@@ -108,7 +125,14 @@ func Default() Config {
 		Receiver: Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
 		Decoder:  Decoder{CPRPairMaxAge: Duration(10 * time.Second)},
 		Tracker:  Tracker{TTL: Duration(60 * time.Second), KnownAddressTTL: Duration(60 * time.Second)},
-		API:      API{Listen: ":8080", StreamInterval: Duration(time.Second)},
+		Trails:   Trails{Window: Duration(10 * time.Minute), MinInterval: Duration(5 * time.Second)},
+		History: History{
+			File:          "history.db",
+			FlushInterval: Duration(15 * time.Second),
+			FlightGap:     Duration(10 * time.Minute),
+			Retention:     Duration(720 * time.Hour),
+		},
+		API: API{Listen: ":8080", StreamInterval: Duration(time.Second)},
 		Map: Map{
 			TileURL:     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 			Attribution: `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`,
@@ -180,6 +204,20 @@ func (c Config) Validate() error {
 	check(c.Decoder.CPRPairMaxAge > 0, "decoder.cprPairMaxAge must be positive, got %s", c.Decoder.CPRPairMaxAge.D())
 	check(c.Tracker.TTL > 0, "tracker.ttl must be positive, got %s", c.Tracker.TTL.D())
 	check(c.Tracker.KnownAddressTTL > 0, "tracker.knownAddressTTL must be positive, got %s", c.Tracker.KnownAddressTTL.D())
+
+	check(c.Trails.Window > 0, "trails.window must be positive, got %s", c.Trails.Window.D())
+	check(c.Trails.MinInterval > 0, "trails.minInterval must be positive, got %s", c.Trails.MinInterval.D())
+
+	check(c.History.FlushInterval > 0, "history.flushInterval must be positive, got %s", c.History.FlushInterval.D())
+	check(c.History.FlightGap > 0, "history.flightGap must be positive, got %s", c.History.FlightGap.D())
+	check(c.History.Retention >= 0, "history.retention must be >= 0, got %s", c.History.Retention.D())
+	if c.History.Enabled {
+		if c.History.File == "" {
+			errs = append(errs, errors.New("history.file must be set when history.enabled is true"))
+		} else if err := checkWritableDir(filepath.Dir(c.History.File)); err != nil {
+			errs = append(errs, fmt.Errorf("history.file %q: %w", c.History.File, err))
+		}
+	}
 
 	_, _, err := net.SplitHostPort(c.API.Listen)
 	check(err == nil, "api.listen must be host:port, got %q", c.API.Listen)

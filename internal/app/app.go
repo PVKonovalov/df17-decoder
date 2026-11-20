@@ -16,6 +16,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/config"
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
+	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
@@ -52,6 +53,7 @@ type Service struct {
 	Stats      *stats.Stats
 	Tracker    *tracker.Tracker
 	Coverage   *coverage.Coverage
+	History    *history.Store // nil when history is disabled
 }
 
 func New(cfg config.Config, log *slog.Logger) (*Service, error) {
@@ -84,6 +86,26 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		}
 	}
 
+	var (
+		hist     *history.Store
+		sink     tracker.FlightSink
+		lastID   int64
+		histFile string
+	)
+	if cfg.History.Enabled {
+		if hist, err = history.Open(history.Options{
+			File:          cfg.History.File,
+			FlushInterval: cfg.History.FlushInterval.D(),
+			Retention:     cfg.History.Retention.D(),
+			Logger:        log,
+		}); err != nil {
+			return nil, err
+		}
+		sink, lastID = hist, hist.LastFlightID()
+		histFile, _ = filepath.Abs(cfg.History.File)
+		log.Info("history enabled", "file", histFile, "lastFlight", lastID)
+	}
+
 	st := stats.New(time.Now())
 	return &Service{
 		cfg:      cfg,
@@ -92,6 +114,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		opt:      modes.Options{FixSingleBitErrors: cfg.Decoder.FixSingleBitErrors},
 		Stats:    st,
 		Coverage: cov,
+		History:  hist,
 		Tracker: tracker.New(tracker.Options{
 			TTL:             cfg.Tracker.TTL.D(),
 			KnownAddressTTL: cfg.Tracker.KnownAddressTTL.D(),
@@ -101,9 +124,14 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 				PairMaxAge: cfg.Decoder.CPRPairMaxAge.D(),
 				RefMaxAge:  cfg.Tracker.TTL.D(),
 			},
-			Logger:   log,
-			Stats:    st,
-			Coverage: cov,
+			Logger:           log,
+			Stats:            st,
+			Coverage:         cov,
+			TrailWindow:      cfg.Trails.Window.D(),
+			TrailMinInterval: cfg.Trails.MinInterval.D(),
+			FlightGap:        cfg.History.FlightGap.D(),
+			Flights:          sink,
+			LastFlightID:     lastID,
 		}),
 	}, nil
 }
@@ -145,6 +173,7 @@ func (s *Service) Run(ctx context.Context) error {
 			UI:             web.Dist(),
 			Tracker:        s.Tracker,
 			Coverage:       s.Coverage,
+			History:        s.History,
 			Stats:          s.Stats,
 			Source:         s.SourceStats,
 			SourceURL:      s.cfg.Source.URL,
@@ -154,6 +183,13 @@ func (s *Service) Run(ctx context.Context) error {
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx }, // ends SSE streams on shutdown
+	}
+
+	var hist sync.WaitGroup
+	histCtx, stopHistory := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopHistory()
+	if s.History != nil {
+		hist.Go(func() { s.History.Run(histCtx) })
 	}
 
 	var wg sync.WaitGroup
@@ -205,6 +241,14 @@ func (s *Service) Run(ctx context.Context) error {
 		s.log.Warn("api shutdown", "err", err)
 	}
 	wg.Wait()
+	if s.History != nil {
+		s.Tracker.CloseFlights()
+		stopHistory()
+		hist.Wait()
+		if err := s.History.Close(); err != nil {
+			s.log.Warn("history close", "err", err)
+		}
+	}
 	return ingestErr
 }
 

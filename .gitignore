@@ -55,3 +55,8 @@ go.work.sum
 
 # Coverage outline and grid saved by a local run (coverage.file)
 /coverage.json
+
+# SQLite flight history (history.file) and its WAL files
+*.db
+*.db-wal
+*.db-shm

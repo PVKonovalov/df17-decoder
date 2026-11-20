@@ -181,6 +181,23 @@ func TestAircraftContract(t *testing.T) {
 	}
 }
 
+// TestTrackPointContract keeps tracker.TrackPoint JSON and the UI fixture in sync, like TestAircraftContract.
+func TestTrackPointContract(t *testing.T) {
+	p := tracker.TrackPoint{T: 1, Lat: 1, Lon: 1, Alt: 1, AltSrc: tracker.AltGNSS, GS: 1, Track: 1, VR: 1,
+		Known: tracker.KnownGS | tracker.KnownTrack | tracker.KnownVR, OnGround: true}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("../../web/src/api/trackpoint.fixture.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := jsonKeys(t, data), jsonKeys(t, fixture); !slices.Equal(got, want) {
+		t.Errorf("TrackPoint JSON keys drifted from web/src/api/trackpoint.fixture.json\n Go:      %v\n fixture: %v", got, want)
+	}
+}
+
 func TestCoverage(t *testing.T) {
 	f := newFixture(t)
 	rec, _ := f.get(t, "/api/coverage")

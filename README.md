@@ -22,9 +22,12 @@ What it decodes:
     aircraft's recent ADS-B or Comm-B data, and a report that contradicts that data is rejected.
     `commBAmbiguous` and `commBRejected` in `/api/stats` count both cases.
 - **Input:** AVR text (port 30002), Beast binary with signal level as RSSI (port 30005), or AVR file replay.
+- **Trails and history:** the server keeps the last `trails.window` (10 min) of every aircraft's track, so a newly
+  opened window shows existing trails at once. Optionally, every flight and its thinned track is written to an
+  SQLite database (see [Flight history](#flight-history)).
 
-The backend uses the Go standard library plus `gopkg.in/yaml.v3` and `github.com/gorilla/websocket`, and requires
-Go 1.26. Building the web UI also needs Node 26+ and npm. Without Node the binary still builds and serves a
+The backend uses the Go standard library plus `gopkg.in/yaml.v3`, `github.com/gorilla/websocket` and
+`modernc.org/sqlite` (pure Go, no cgo, so the binaries stay static), and requires Go 1.26. Building the web UI also needs Node 26+ and npm. Without Node the binary still builds and serves a
 placeholder page.
 
 ## Running against dump1090
@@ -102,7 +105,8 @@ journalctl -u df17-decoder -f   # logs
 After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. The unit gives the
 service one writable directory, `/var/lib/df17-decoder`, and makes it the working directory, so
 `coverage.file: coverage.json` (or the full `/var/lib/df17-decoder/coverage.json`) keeps the coverage outline and
-grid across restarts. A `coverage.file` whose directory is missing or not writable is a config error: the service
+grid across restarts, and the default `history.file: history.db` lands there too. A `coverage.file` or (with
+history enabled) `history.file` whose directory is missing or not writable is a config error: the service
 stops with exit code 2 and systemd doesn't restart it. To listen on a port
 below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 
@@ -115,8 +119,10 @@ docker run -d --name df17 --restart unless-stopped -p 8080:8080 \
   -v df17-state:/var/lib/df17-decoder df17-decoder
 ```
 
-The `df17-state` volume keeps the coverage data when `coverage.file` is `/var/lib/df17-decoder/coverage.json`.
-Use the full path here: the image's working directory is `/`, which the non-root user can't write.
+The `df17-state` volume keeps the coverage data when `coverage.file` is `/var/lib/df17-decoder/coverage.json`,
+and the flight history when `history.file` is `/var/lib/df17-decoder/history.db`. Use full paths here: the
+image's working directory is `/`, which the non-root user can't write. Keep the database on a volume, not a bind
+mount on a network file system: SQLite's WAL mode needs local file locking.
 
 In the container, `localhost` is the container itself. Point `source.url` at the dump1090 host's address, or use
 `--network host` on Linux. For another architecture, use buildx, for example
@@ -130,14 +136,18 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
 | `GET /api/stats` | Version, source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
-| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver` and `map` once, `coverage` every 10 s, `coverageGrid` every 60 s, `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver`, `map` and `trails` (every current trail and the window) once, `coverage` every 10 s, `coverageGrid` every 60 s, `trailPoints` (only points this connection hasn't had), `aircraft` and `stats` every `api.streamInterval` |
 | `GET /api/map` | Tile layer for the UI from the `map` config section |
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /api/coverage` | Range outline: the furthest accepted position per 2° of bearing (distance, point, altitude, time) |
 | `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
+| `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?limit=` (100, max 1000) |
+| `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
+| `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
-Every other path serves the [web UI](#web-ui) embedded in the binary. Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
+The `/api/history` endpoints return 503 when history is disabled. Every other path serves the [web UI](#web-ui)
+embedded in the binary. Fields that are unknown are left out of the JSON, so `"altBaro": 0` means a real altitude of 0 ft.
 
 Sample output from a replay of the synthetic `testdata/capture.txt`:
 
@@ -199,6 +209,41 @@ $ curl -s localhost:8080/api/stats
 }
 ```
 
+## Flight history
+
+Track points are thinned before they are kept: a new point is stored when `trails.minInterval` (5 s) has passed,
+the track has turned by 3° or more, the altitude has changed by 200 ft or more, or the aircraft has landed or
+taken off. The live trails and the database use the same points.
+
+A flight is one continuous presence of an ICAO address. It opens with the first message, stays open while the
+aircraft is tracked and for `history.flightGap` (10 min) after it expires, so an aircraft that briefly drops out
+continues the same flight. It closes after the gap, or when the callsign changes to another non-empty value
+(which starts a new flight). Mode-S-only aircraft get flights too, with samples of altitude and squawk (on a
+change of 100 ft or a new squawk, at least every 30 s) instead of positions.
+
+```yaml
+history:
+  enabled: true
+  file: history.db      # Docker: /var/lib/df17-decoder/history.db
+  flushInterval: 15s    # one transaction per interval; a crash loses at most this much
+  flightGap: 10m
+  retention: 720h       # closed flights older than this are deleted hourly; 0 keeps everything
+```
+
+Writing never slows decoding: points go through a bounded queue to one writer goroutine, and are dropped (and
+counted) if the database can't keep up. `/api/stats` then reports `historyFlightsOpen`, `historyPointsWritten`,
+`historyDropped`, `historyWriteErrors` and `historyLastFlush`. Flights left open by a crash are closed at the next
+start. The schema version is kept in the database and upgraded automatically.
+
+**Disk use.** A stored point takes about 84 bytes including indexes. An aircraft in cruise stores about one point
+per 5 s (about 1.5 MB per day), more while turning or climbing, so count roughly 2 MB per day for every aircraft
+in view on average: 10 aircraft around the clock take about 600 MB per 30 days, 100 about 6 GB. Samples of
+Mode-S-only aircraft are much smaller. Deleted flights free their space through incremental vacuum.
+
+**Privacy.** Like `coverage.json`, the database reveals where your receiver is: every track ends at the edge of
+its range. Don't share the file, and keep real coordinates out of anything you publish. `*.db`, `*.db-wal`
+and `*.db-shm` are ignored by git and Docker builds.
+
 ## Web UI
 
 Open `http://<host>:8080/` for a live map and a table of aircraft. The UI is built into the binary, so
@@ -216,8 +261,8 @@ there's nothing else to deploy.
   stronger than they are; use Count to see where reception thins out. Set `coverage.file` to
   keep the outline and the grid across restarts. It is saved every minute and on shutdown, and starts over when the
   receiver position changes. Labels show callsign and altitude
-  in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails cover
-  the last 5 minutes. Aircraft whose position is older than 30 s fade out.
+  in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails come
+  from the server and cover the last `trails.window` (10 minutes), also in a window opened later. Aircraft whose position is older than 30 s fade out.
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
   unless you use your own tile server (see below).
 - **Table:** every aircraft, including Mode-S-only ones (marked "no pos"). Every column sorts, with unknown
@@ -326,7 +371,9 @@ source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──�
 - `internal/modes`: pure decoding with no I/O. It covers CRC-24, all DFs, ME type codes, Gillham, and CPR.
   Each decoder cites its section of [The 1090 MHz Riddle](https://mode-s.org/1090mhz/).
 - `internal/tracker`: the aircraft table (one writer, many readers via copies), the known-address filter, CPR
-  position resolving with range and speed checks, and TTL expiry.
+  position resolving with range and speed checks, TTL expiry, thinned trails and flight segmentation.
+- `internal/history`: the optional SQLite store (a non-blocking `tracker.FlightSink`, batched writer, migrations,
+  retention) and its read queries.
 - `internal/api`: HTTP handlers, the `/api/ws` WebSocket and the embedded UI. `internal/stats`: atomic
   counters. `internal/config`: YAML defaults and validation. `internal/geo`: distance and bearing.
 - `web/`: React + TypeScript UI (Vite, Leaflet, TanStack Table), embedded through `web/embed.go`.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Aircraft } from '../api/types'
-import { extendTrail, initialState, reducer, TRAIL_MAX_AGE_MS, type State } from './reducer'
+import { appendTrail, DEFAULT_TRAIL_WINDOW_MS, initialState, reducer, type State, type TrailPoint } from './reducer'
 
 const T0 = Date.parse('2026-11-19T10:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -33,35 +33,57 @@ describe('snapshot', () => {
     expect(s.aircraft.get('738002')?.callsign).toBe('ELY2')
   })
 
-  it('keeps a real altitude of 0', () => {
-    const s = snap(initialState, at('738001', T0, 32, 0))
+})
+
+const pt = (ms: number, lat: number, alt?: number): TrailPoint => ({ t: ms, lat, lon: 22.9, ...(alt !== undefined && { alt }) })
+const lats = (s: State, icao: string) => s.trails.get(icao)?.map((p) => p.lat)
+
+describe('trails', () => {
+  it('starts from the server trails and its window', () => {
+    let s = reducer(initialState, { type: 'trailPoints', points: { '738009': [pt(T0, 9)] } })
+    s = reducer(s, { type: 'trails', windowMs: 60_000, trails: { '738001': [pt(T0, 1, 0), pt(T0 + 1000, 2)], '738002': [] } })
+    expect(s.trailWindowMs).toBe(60_000)
+    expect([...s.trails.keys()]).toEqual(['738001'])
     expect(s.trails.get('738001')?.[0]?.alt).toBe(0)
   })
 
-  it('builds trails from new positions only and drops trails of removed aircraft', () => {
-    let s = snap(initialState, at('738001', T0, 25.0, 1000), ac('738002'))
-    s = snap(s, at('738001', T0, 25.0, 1000)) // same posTime: no new point
-    s = snap(s, at('738001', T0 + 1000, 25.1, 1100))
-    expect(s.trails.get('738001')?.map((p) => p.lat)).toEqual([25.0, 25.1])
-    expect(s.trails.has('738002')).toBe(false)
+  it('appends only new points and trims to the server window', () => {
+    let s = reducer(initialState, { type: 'trails', windowMs: 60_000, trails: { '738001': [pt(T0, 1)] } })
+    s = reducer(s, { type: 'trailPoints', points: { '738001': [pt(T0, 1), pt(T0 + 30_000, 2)], '738002': [pt(T0, 5)] } })
+    expect(lats(s, '738001')).toEqual([1, 2])
+    expect(lats(s, '738002')).toEqual([5])
 
+    s = reducer(s, { type: 'trailPoints', points: { '738001': [pt(T0 + 70_000, 3)] } })
+    expect(lats(s, '738001')).toEqual([2, 3])
+  })
+
+  it('keeps the state when no point is new', () => {
+    const s = reducer(initialState, { type: 'trails', windowMs: 60_000, trails: { '738001': [pt(T0, 1)] } })
+    expect(reducer(s, { type: 'trailPoints', points: {} })).toBe(s)
+    expect(reducer(s, { type: 'trailPoints', points: { '738001': [pt(T0, 1)] } })).toBe(s)
+  })
+
+  it('drops trails of aircraft gone from the snapshot', () => {
+    let s = reducer(initialState, { type: 'trails', windowMs: 60_000, trails: { '738001': [pt(T0, 1)], '738002': [pt(T0, 2)] } })
+    s = snap(s, ac('738001'), ac('738002'))
+    const kept = s.trails
+    s = snap(s, ac('738001'), ac('738002'))
+    expect(s.trails).toBe(kept)
     s = snap(s, ac('738002'))
-    expect(s.trails.has('738001')).toBe(false)
+    expect([...s.trails.keys()]).toEqual(['738002'])
   })
 })
 
-describe('extendTrail', () => {
-  it('trims points older than the max age before the newest point', () => {
-    let trail = extendTrail([], at('a', T0, 1))
-    trail = extendTrail(trail, at('a', T0 + 60_000, 2))
-    trail = extendTrail(trail, at('a', T0 + TRAIL_MAX_AGE_MS + 30_000, 3))
-    expect(trail.map((p) => p.lat)).toEqual([2, 3])
+describe('appendTrail', () => {
+  it('uses the default window before the server sends one', () => {
+    expect(initialState.trailWindowMs).toBe(DEFAULT_TRAIL_WINDOW_MS)
+    const trail = appendTrail([pt(T0, 1)], [pt(T0 + DEFAULT_TRAIL_WINDOW_MS + 1, 2)], DEFAULT_TRAIL_WINDOW_MS)
+    expect(trail.map((p) => p.lat)).toEqual([2])
   })
 
-  it('ignores aircraft without position and out-of-order positions', () => {
-    const trail = extendTrail([], at('a', T0, 1))
-    expect(extendTrail(trail, ac('a'))).toBe(trail)
-    expect(extendTrail(trail, at('a', T0 - 1000, 2))).toBe(trail)
+  it('ignores out-of-order points', () => {
+    const trail = appendTrail([], [pt(T0, 1)], 60_000)
+    expect(appendTrail(trail, [pt(T0 - 1000, 2)], 60_000)).toBe(trail)
   })
 })
 

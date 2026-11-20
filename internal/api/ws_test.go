@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
+	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/gorilla/websocket"
 )
 
@@ -52,14 +53,18 @@ func TestWS_Updates(t *testing.T) {
 		t.Fatalf("second message = %s %s", m.Type, m.Data)
 	}
 	m = readWS(t, c)
+	if m.Type != "trails" || !strings.HasPrefix(string(m.Data), `{"window":"10m0s","trails":{"738001":[{"t":`) {
+		t.Fatalf("third message = %s %s", m.Type, m.Data)
+	}
+	m = readWS(t, c)
 	var cov coverage.Snapshot
 	if err := json.Unmarshal(m.Data, &cov); m.Type != "coverage" || err != nil || len(cov.Points) < 2 || cov.Receiver.Lat != 25.07 {
-		t.Fatalf("third message = %s %s (err %v)", m.Type, m.Data, err)
+		t.Fatalf("fourth message = %s %s (err %v)", m.Type, m.Data, err)
 	}
 	m = readWS(t, c)
 	var grid coverage.Grid
 	if err := json.Unmarshal(m.Data, &grid); m.Type != "coverageGrid" || err != nil || len(grid.Bands) != 4 {
-		t.Fatalf("fourth message = %s %s (err %v)", m.Type, m.Data, err)
+		t.Fatalf("fifth message = %s %s (err %v)", m.Type, m.Data, err)
 	}
 
 	// aircraft and stats every 20 ms, coverage every 30 ms, interleaved
@@ -78,10 +83,73 @@ func TestWS_Updates(t *testing.T) {
 			if err := json.Unmarshal(m.Data, &st); m.Type != "stats" || err != nil || st.Aircraft != 3 || st.Source.URL != "tcp://test:30002" {
 				t.Fatalf("stats message after aircraft = %s %s (err %v)", m.Type, m.Data, err)
 			}
-		case "coverage":
+		case "coverage", "trailPoints":
 		default:
 			t.Fatalf("unexpected message %s", m.Type)
 		}
+	}
+}
+
+func TestWS_TrailsThenOnlyNewPoints(t *testing.T) {
+	f := newFixture(t)
+	srv := httptest.NewServer(f.handler)
+	defer srv.Close()
+	c, _, err := websocket.DefaultDialer.Dial(wsURL(srv), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	type point struct {
+		T   int64   `json:"t"`
+		Lat float64 `json:"lat"`
+		Alt *int    `json:"alt"`
+	}
+	next := func(typ string) json.RawMessage {
+		t.Helper()
+		for {
+			if m := readWS(t, c); m.Type == typ {
+				return m.Data
+			}
+		}
+	}
+	var trails struct {
+		Window string             `json:"window"`
+		Trails map[string][]point `json:"trails"`
+	}
+	if err := json.Unmarshal(next("trails"), &trails); err != nil {
+		t.Fatal(err)
+	}
+	if len(trails.Trails) != 2 || len(trails.Trails["738001"]) != 1 || len(trails.Trails["738002"]) != 1 {
+		t.Fatalf("trails = %+v", trails)
+	}
+	if p := trails.Trails["738002"][0]; p.Alt == nil || *p.Alt != 12000 {
+		t.Errorf("738002 point = %+v", p)
+	}
+	if got := string(next("trailPoints")); got != "{}" {
+		t.Errorf("first trailPoints = %s, want {} (nothing new)", got)
+	}
+
+	last := trails.Trails["738001"][0].T
+	at := time.UnixMilli(last).Add(6 * time.Second)
+	f.tracker.Update(modes.Message{DF: 17, ICAO: 0x738001, Time: at, TC: 11, AirbornePosition: &modes.AirbornePosition{
+		Altitude: new(1000), CPR: modes.EncodeCPR(25.25, 22.87, false),
+	}}, nil)
+
+	var pts map[string][]point
+	for {
+		if err := json.Unmarshal(next("trailPoints"), &pts); err != nil {
+			t.Fatal(err)
+		}
+		if len(pts) > 0 {
+			break
+		}
+	}
+	if len(pts) != 1 || len(pts["738001"]) != 1 || pts["738001"][0].T != at.UnixMilli() {
+		t.Errorf("new points = %+v", pts)
+	}
+	if got := string(next("trailPoints")); got != "{}" {
+		t.Errorf("trailPoints after the new point = %s, want {} (nothing resent)", got)
 	}
 }
 

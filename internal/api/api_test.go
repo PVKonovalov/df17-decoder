@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
+	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
@@ -20,6 +22,7 @@ import (
 
 type fixture struct {
 	handler http.Handler
+	tracker *tracker.Tracker
 	src     source.StatsSnapshot
 	stats   *stats.Stats
 }
@@ -58,7 +61,7 @@ func newFixture(t *testing.T) *fixture {
 	st.AddFrame(17)
 	st.AddFrame(4)
 
-	f := &fixture{stats: st}
+	f := &fixture{stats: st, tracker: tr}
 	f.handler = New(Deps{
 		Receiver:         Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
 		Map:              MapConfig{TileURL: "http://tiles.lan/{z}/{x}/{y}.png", Attribution: "lan", MaxZoom: 17},
@@ -215,6 +218,11 @@ func TestStats(t *testing.T) {
 			t.Errorf("missing %q", k)
 		}
 	}
+	for k := range s {
+		if strings.HasPrefix(k, "history") {
+			t.Errorf("%q present with history disabled", k)
+		}
+	}
 }
 
 func TestHealthz(t *testing.T) {
@@ -286,5 +294,34 @@ func TestStream_StopsWhenRequestContextEnds(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("stream handler did not return after context cancel")
+	}
+}
+
+func TestStats_History(t *testing.T) {
+	store, err := history.Open(history.Options{File: filepath.Join(t.TempDir(), "h.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	store.Point(1, tracker.TrackPoint{})
+	h := New(Deps{
+		Tracker: tracker.New(tracker.Options{TTL: time.Minute}),
+		Stats:   stats.New(time.Now()),
+		Source:  func() source.StatsSnapshot { return source.StatsSnapshot{} },
+		History: store,
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/stats", nil))
+	var s map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"historyFlightsOpen", "historyPointsWritten", "historyDropped", "historyWriteErrors"} {
+		if _, ok := s[k]; !ok {
+			t.Errorf("missing %q in %v", k, s)
+		}
+	}
+	if _, ok := s["historyLastFlush"]; ok {
+		t.Error("historyLastFlush present before the first flush")
 	}
 }

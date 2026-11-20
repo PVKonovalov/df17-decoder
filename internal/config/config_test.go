@@ -88,6 +88,10 @@ func TestLoad_Errors(t *testing.T) {
 		{"tile url without placeholders", "map:\n  tileUrl: https://t.lan/tiles.png\n", []string{"{z}", "{x}", "{y}"}},
 		{"max zoom out of range", "map:\n  maxZoom: 30\n", []string{"map.maxZoom"}},
 		{"coverage dir missing", "coverage:\n  file: /no/such/dir/coverage.json\n", []string{"coverage.file", "/no/such/dir"}},
+		{"history dir missing", "history:\n  enabled: true\n  file: /no/such/dir/history.db\n", []string{"history.file", "/no/such/dir"}},
+		{"history without file", "history:\n  enabled: true\n  file: \"\"\n", []string{"history.file must be set"}},
+		{"history durations", "history:\n  flushInterval: 0s\n  flightGap: 0s\n  retention: -1h\n", []string{"history.flushInterval", "history.flightGap", "history.retention"}},
+		{"trails durations", "trails:\n  window: 0s\n  minInterval: 0s\n", []string{"trails.window", "trails.minInterval"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

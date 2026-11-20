@@ -14,6 +14,7 @@ import (
 
 	"github.com/PVKonovalov/df17-decoder/internal/config"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
+	"github.com/PVKonovalov/df17-decoder/internal/history"
 )
 
 func captureConfig() config.Config {
@@ -313,5 +314,57 @@ func TestSaveCoverage_WarnsOnceAndReportsRecovery(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.Coverage.File); err != nil {
 		t.Errorf("coverage not saved after recovery: %v", err)
+	}
+}
+
+func TestRun_WritesHistory(t *testing.T) {
+	cfg := captureConfig()
+	cfg.History.Enabled = true
+	cfg.History.File = filepath.Join(t.TempDir(), "history.db")
+	svc, _ := newService(t, cfg)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for svc.Stats.Messages.Load() < 13 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	st := svc.Stats.Snapshot(time.Now())
+	if st.Frames != 16 || st.Messages != 13 || st.Positions != 2 || st.AddressParityDrops != 1 {
+		t.Errorf("decoder counts changed: frames=%d messages=%d positions=%d apDrops=%d", st.Frames, st.Messages, st.Positions, st.AddressParityDrops)
+	}
+	// 40621D's two fixes are 3 s apart at the same altitude: thinning keeps one
+	if h := svc.History.Stats(); h.PointsWritten != 1 || h.Dropped != 0 || h.WriteErrors != 0 || h.FlightsOpen != 0 {
+		t.Errorf("history stats = %+v", h)
+	}
+
+	store, err := history.Open(history.Options{File: cfg.History.File})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var flights, closed, adsb, points, samples int
+	if err := store.DB().QueryRow(`SELECT count(*), sum(closed), sum(adsb), sum(points),
+		(SELECT count(*) FROM samples) FROM flights`).Scan(&flights, &closed, &adsb, &points, &samples); err != nil {
+		t.Fatal(err)
+	}
+	if flights != 5 || closed != 5 || adsb != 4 || points != 1 || samples != 1 {
+		t.Errorf("flights=%d closed=%d adsb=%d points=%d samples=%d", flights, closed, adsb, points, samples)
+	}
+	var alt int
+	if err := store.DB().QueryRow(`SELECT s.alt FROM samples s JOIN flights f ON f.id = s.flight_id WHERE f.icao = '738ABC'`).Scan(&alt); err != nil || alt != 2600 {
+		t.Errorf("738ABC sample alt %d (%v); replies at the same time replace the sample", alt, err)
+	}
+	var callsign, squawk string
+	if err := store.DB().QueryRow(`SELECT callsign FROM flights WHERE icao = '4840D6'`).Scan(&callsign); err != nil || callsign != "KLM1023" {
+		t.Errorf("4840D6 callsign %q (%v)", callsign, err)
+	}
+	if err := store.DB().QueryRow(`SELECT squawk FROM flights WHERE icao = '738ABC' AND adsb = 0`).Scan(&squawk); err != nil || squawk != "0243" {
+		t.Errorf("738ABC squawk %q (%v)", squawk, err)
 	}
 }
