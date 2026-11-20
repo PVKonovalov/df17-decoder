@@ -146,6 +146,13 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
 | `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
 | `GET /api/history/timeline?from=&to=&bucket=1m` | Flights active per bucket as `[ADS-B, Mode-S only]` (at most 2000 buckets) and emergency squawk events: the timeline's density strip |
+| `GET /api/storage` | Disk use of the state directory: volume size and free space, tape/database/other bytes, growth per day, steady-state sizes, days until full and until the disk guard, the oldest tape/flight/rollup, guard flags. Cached for 60 s |
+| `GET /api/stats/hourly?from=&to=` | Hourly rollups (aircraft ADS-B / Mode-S only, flights started, positions, messages, max range and bearing, sizes, receiver counters), plus the current hour so far (`partial`). Default the last 24 h; at most 400 days, clamped to `stats.retention` |
+| `GET /api/stats/countries?from=&to=&limit=` | Aircraft-hours per country of registration, largest first (`limit` 20, max 500) |
+| `GET /api/stats/operators?from=&to=&limit=` | Aircraft-hours per callsign prefix (airline-style callsigns only) |
+| `GET /api/stats/range-daily?from=&to=&tz=` | The furthest position per day in the IANA timezone `tz` (default UTC), with its bearing and hour |
+| `GET /api/stats/altitude?from=&to=` | Stored positions per altitude band: ground, 5000 ft bands up to ≥40k, unknown |
+| `GET /api/stats/notable?from=&to=&limit=` | Emergency squawks and first sightings of ICAO addresses: counts and up to `limit` (100) events, emergencies first, then newest |
 | `GET /api/tape/extent` | The tape's oldest and newest recorded time and its recorded spans (silences over 60 s split them); 503 when the tape is disabled |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
@@ -247,6 +254,54 @@ Mode-S-only aircraft are much smaller. Deleted flights free their space through 
 its range. Don't share the file, and keep real coordinates out of anything you publish. `*.db`, `*.db-wal`
 and `*.db-shm` are ignored by git and Docker builds.
 
+## Statistics
+
+The Statistics page (`/stats`, linked from the header) shows where the disk goes and what the receiver heard over
+24 hours, 7 days, 30 days, a year or a custom span of days. The range is kept in the URL, so a view can be shared.
+It refreshes once a minute and doesn't use the live WebSocket.
+
+- **Storage:** a bar of tape, flight history, other files and free space, and in plain words how fast the tape and
+  the database grow and where they level off, e.g. "The tape grows about 36 MB per day; it levels off at about
+  500 MB after 14 days". Growth is measured from the hourly size samples (falling back to the last day of tape
+  segments); shrinking steps are retention at work and don't count. Steady state is growth × retention. Data kept
+  forever (`retention: 0`) counts towards "the disk is full in…", everything still growing towards "the disk
+  guard starts deleting in…". An amber warning appears below twice `tape.minFreeMB` free or after the guard has
+  deleted segments, a red one when it is deleting or recording is paused.
+- **Aircraft per hour:** distinct ICAO addresses heard in each hour, stacked as ADS-B (any ADS-B flight in the
+  hour) and Mode-S only, with decoded messages on a second axis. The current hour is lighter.
+- **Hour × weekday:** the average aircraft per hour for each weekday and hour, in the browser's timezone.
+- **Countries:** aircraft-hours by country of registration (from the ICAO address): each aircraft counts once
+  per hour it was heard, so long ranges add up without keeping every flight. The top 15, the rest as "Other".
+- **Operators:** aircraft-hours by airline designator, the first 3 letters of callsigns like `KLM1023`. Other
+  callsigns (registrations, most military and GA) aren't counted.
+- **Altitude:** stored positions per 5000 ft band, plus on the ground and unknown. Track points are kept about
+  every 5 s (more while turning or climbing), so this is close to the time spent at each altitude.
+- **Max range per day:** the furthest stored position each day, with the best day marked; useful for comparing
+  antennas.
+- **Receiver health:** frames per hour, the share failing CRC, and silent minutes (minutes without a single frame,
+  whether the receiver died or the connection dropped) in red. The tooltip adds bit errors fixed, CPR rejections,
+  reconnects and the mean signal level (Beast only). Like messages, these exist only for hours the service ran
+  through from start to end.
+- **Notable aircraft:** emergency squawks (7500, 7600, 7700; when first seen in the flight) and ICAO addresses heard
+  for the first time. Each row opens playback at that moment with the aircraft selected. "First" means since the
+  flight history began: the first sightings of addresses are remembered for `stats.retention`, longer than flights.
+  When upgrading an existing database, every aircraft already in it is "new" at its first stored flight, so the
+  list becomes meaningful after a while.
+
+Clicking an hour bar, a heatmap cell (its latest hour) or a day opens the map in playback at that hour.
+
+The charts come from hourly rollups in the flight history database, so they need `history.enabled`. A job
+computes the previous hour at five past each hour; at start it backfills missing hours from the stored flights in
+the background, and recomputes hours of an older rollup version while their flights are still stored. Messages
+and the receiver counters are known only for hours this process saw from start to end (NULL after a restart in
+the middle of an hour, and for backfilled hours). Rollups are small (one row per hour plus one per country,
+callsign prefix and altitude band heard: about 1–2 KB per hour at a busy site, 10–20 MB per year) and kept much longer than flights:
+
+```yaml
+stats:
+  retention: 8760h   # rollups older than this are deleted daily; 0 keeps them forever
+```
+
 ## Tape recorder and playback
 
 The service records every frame it receives, 24/7, to compressed hourly files, and the UI can play any moment
@@ -344,6 +399,7 @@ there's nothing else to deploy.
   Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
 - **Panels:** the **Table** and **Legend** switches in the header hide the aircraft table (the map takes the
   full width) and the map legend with its color and coverage selectors. Each browser remembers the choice.
+- **Statistics:** the header link opens the [Statistics](#statistics) page.
 - **Shareable links:** the address bar follows the selection and the table's filter and sort, e.g.
   `/?icao=738ABC&q=ELY&pos=1&sort=-altitude` (`-` sorts descending; defaults are left out). Opening such a
   link selects the aircraft and pans to it as soon as it is heard. **Copy link** in the detail panel copies
@@ -447,11 +503,13 @@ source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──�
   segments, gaps, extent) and the `tape://` source. `internal/playback`: per-connection sessions that decode the
   tape into their own tracker, aged by a virtual clock.
 - `internal/history`: the optional SQLite store (a non-blocking `tracker.FlightSink`, batched writer, migrations,
-  retention) and its read queries.
+  retention), its read queries, and the hourly statistics rollups. `internal/storage`: the disk report behind
+  `/api/storage`.
 - `internal/api`: HTTP handlers, the `/api/ws` WebSocket and the embedded UI. `internal/stats`: atomic
   counters. `internal/config`: YAML defaults and validation. `internal/geo`: distance and bearing.
-- `web/`: React + TypeScript UI (Vite, Leaflet, TanStack Table), embedded through `web/embed.go`.
-  `web/src/api/aircraft.fixture.json` is a contract shared by a Go test and a TypeScript test, so the JSON
+- `web/`: React + TypeScript UI (Vite, Leaflet, TanStack Table, and ECharts on the lazily loaded Statistics
+  page), embedded through `web/embed.go`.
+  `web/src/api/aircraft.fixture.json` (and the trackpoint and stats fixtures) are contracts shared by a Go test and a TypeScript test, so the JSON
   and the TS types can't drift apart.
 - `cmd/replaygen`: synthetic AVR capture generator (its own frame encoders, checked against the decoder).
 

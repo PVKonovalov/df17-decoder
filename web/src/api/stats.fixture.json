@@ -1,0 +1,90 @@
+{
+  "storage": {
+    "volume": {
+      "totalBytes": 63000000000,
+      "freeBytes": 41000000000
+    },
+    "usage": {
+      "tapeBytes": 812000000,
+      "dbBytes": 96000000,
+      "otherBytes": 52000
+    },
+    "growth": {
+      "tapeBytesPerDay": 65000000,
+      "dbBytesPerDay": 9500000
+    },
+    "projection": {
+      "tapeRetentionDays": 14,
+      "dbRetentionDays": 30,
+      "tapeSteadyStateBytes": 910000000,
+      "dbSteadyStateBytes": 285000000,
+      "daysUntilFull": 4300,
+      "daysUntilGuard": 538
+    },
+    "horizon": {
+      "tapeOldest": "2026-11-06T12:00:00Z",
+      "flightsOldest": "2026-10-21T12:00:00Z",
+      "rollupsOldest": "2025-11-20T12:00:00Z"
+    },
+    "flags": {
+      "guardActive": false,
+      "guardDeletedSegments": 0,
+      "warning": false,
+      "minFreeBytes": 1073741824
+    }
+  },
+  "hourly": {
+    "hour": "2026-11-20T12:00:00Z",
+    "aircraftAdsb": 41,
+    "aircraftModes": 6,
+    "flightsStarted": 38,
+    "positions": 9120,
+    "messages": 198000,
+    "maxRangeNm": 187.4,
+    "maxRangeBearing": 92.5,
+    "dbBytes": 96000000,
+    "tapeBytes": 812000000,
+    "frames": 412000,
+    "crcFailures": 61000,
+    "fixedBitErrors": 900,
+    "cprRejected": 3,
+    "reconnects": 0,
+    "silentMinutes": 0,
+    "signalDbfs": -21.4,
+    "partial": true
+  },
+  "country": {
+    "country": "Netherlands",
+    "aircraftHours": 120
+  },
+  "operator": {
+    "prefix": "KLM",
+    "aircraftHours": 95
+  },
+  "rangeDay": {
+    "day": "2026-11-20",
+    "maxRangeNm": 187.4,
+    "bearing": 92.5,
+    "hour": "2026-11-20T12:00:00Z"
+  },
+  "altitude": {
+    "band": "5–10k",
+    "minFt": 5000,
+    "positions": 1820
+  },
+  "notable": {
+    "emergencies": 1,
+    "firstSeen": 14,
+    "events": [
+      {
+        "t": "2026-11-20T12:41:07Z",
+        "kind": "emergency",
+        "icao": "4840D6",
+        "country": "Netherlands",
+        "callsign": "KLM1023",
+        "squawk": "7700",
+        "flightId": 42
+      }
+    ]
+  }
+}

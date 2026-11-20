@@ -82,6 +82,7 @@ func TestLoad_Errors(t *testing.T) {
 		{"reconnect max below min", "source:\n  reconnectMin: 10s\n  reconnectMax: 1s\n", []string{"source.reconnectMax"}},
 		{"bad scheme", "source:\n  url: http://a:1\n", []string{"scheme must be"}},
 		{"tcp without port", "source:\n  url: tcp://localhost\n", []string{"host:port"}},
+		{"negative stats retention", "stats:\n  retention: -1h\n", []string{"stats.retention"}},
 		{"negative playback sessions", "playback:\n  maxSessions: -1\n", []string{"playback.maxSessions"}},
 		{"tape with a bad start", "source:\n  url: tape://tape?from=noon\n", []string{"source.url", "RFC 3339"}},
 		{"bad log level", "log:\n  level: verbose\n", []string{"log.level"}},

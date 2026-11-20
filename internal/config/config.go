@@ -44,6 +44,7 @@ type Config struct {
 	History  History  `yaml:"history"`
 	Tape     Tape     `yaml:"tape"`
 	Playback Playback `yaml:"playback"`
+	Stats    Stats    `yaml:"stats"`
 	API      API      `yaml:"api"`
 	Map      Map      `yaml:"map"`
 	Coverage Coverage `yaml:"coverage"`
@@ -96,6 +97,11 @@ type Tape struct {
 	FlushInterval Duration `yaml:"flushInterval"`
 	Retention     Duration `yaml:"retention"`
 	MinFreeMB     int      `yaml:"minFreeMB"`
+}
+
+// Stats configures the hourly rollups (they need history.enabled).
+type Stats struct {
+	Retention Duration `yaml:"retention"` // 0 keeps them forever
 }
 
 // Playback limits the per-connection tape playback sessions.
@@ -160,6 +166,7 @@ func Default() Config {
 			MinFreeMB:     1024,
 		},
 		Playback: Playback{MaxSessions: 4, IdleTimeout: Duration(30 * time.Minute)},
+		Stats:    Stats{Retention: Duration(8760 * time.Hour)},
 		API:      API{Listen: ":8080", StreamInterval: Duration(time.Second)},
 		Map: Map{
 			TileURL:     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -253,6 +260,7 @@ func (c Config) Validate() error {
 	check(c.Tape.Retention >= 0, "tape.retention must be >= 0, got %s", c.Tape.Retention.D())
 	check(c.Tape.MinFreeMB >= 0, "tape.minFreeMB must be >= 0, got %d", c.Tape.MinFreeMB)
 	check(c.Playback.MaxSessions >= 0, "playback.maxSessions must be >= 0, got %d", c.Playback.MaxSessions)
+	check(c.Stats.Retention >= 0, "stats.retention must be >= 0, got %s", c.Stats.Retention.D())
 	check(c.Playback.IdleTimeout >= 0, "playback.idleTimeout must be >= 0, got %s", c.Playback.IdleTimeout.D())
 	if c.Tape.Enabled {
 		if err := checkTapeDir(c.Tape.Dir); err != nil {

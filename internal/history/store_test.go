@@ -56,8 +56,8 @@ func point(at time.Time, alt int) tracker.TrackPoint {
 func TestOpen_CreatesSchema(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, file, Options{})
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 2 {
-		t.Errorf("schema version %d, want 2", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 4 {
+		t.Errorf("schema version %d, want 4", v)
 	}
 	if v := queryInt(t, s, `PRAGMA auto_vacuum`); v != 2 {
 		t.Errorf("auto_vacuum = %d, want 2 (incremental)", v)

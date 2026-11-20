@@ -45,3 +45,8 @@
 - 2026-11-20: Playback sessions on /api/ws: play/pause/seek/speed/step/live control, playback and error messages, gap skip, auto-live at the end, playback config (maxSessions, idleTimeout).
 - 2026-11-20: Tape deck UI: REC indicator, transport (⏮ ⏪ ⏯ ⏩ LIVE), tape counter with date entry, timeline with zoom, PLAYBACK badge, keyboard, moment links (t, speed).
 - 2026-11-20: /api/history/timeline and flight search (q); deck density strip, emergency markers, find-a-flight seek; tape/playback docs; Docker workdir is the state dir.
+- 2026-11-20: Hourly stats rollups (schema v3: hourly, hourly_country, hourly_operator): HH:05 job, message-counter snapshots, size samples, background backfill, stats.retention.
+- 2026-11-20: GET /api/storage (disk, usage, growth, projections, guard flags; 60 s cache), /api/stats/hourly, countries, operators, range-daily?tz= with current partial hour; contract fixture.
+- 2026-11-20: /stats page (lazy chunk, tree-shaken ECharts): storage panel with warnings, aircraft per hour, hour × weekday heatmap, countries, max range per day; range in URL; click-through to playback.
+- 2026-11-20: Docs for the Statistics page (README: charts, aircraft-hours, stats.retention, disk projections, API); CLAUDE.md notes; echarts in the dependency lists.
+- 2026-11-20: Stats M5 (schema v4): operators chart, receiver health per hour (counters, silent minutes, signal), altitude bands, notable aircraft (emergencies, first-seen ICAO); endpoints.

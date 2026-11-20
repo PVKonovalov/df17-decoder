@@ -41,6 +41,42 @@ var migrations = []string{
 
 	// country follows from the ICAO address (tracker.Country).
 	`ALTER TABLE flights DROP COLUMN country;`,
+
+	// hourly rollups (rollup.go), kept for stats.retention
+	`CREATE TABLE hourly (
+		hour INTEGER PRIMARY KEY,
+		aircraft_adsb INTEGER NOT NULL,
+		aircraft_modes INTEGER NOT NULL,
+		flights_started INTEGER NOT NULL,
+		positions INTEGER NOT NULL,
+		messages INTEGER,
+		max_range_nm REAL,
+		max_range_bearing REAL,
+		db_bytes INTEGER, tape_bytes INTEGER
+	) WITHOUT ROWID;
+	CREATE TABLE hourly_country (hour INTEGER NOT NULL, country TEXT NOT NULL, aircraft INTEGER NOT NULL,
+		PRIMARY KEY (hour, country)) WITHOUT ROWID;
+	CREATE TABLE hourly_operator (hour INTEGER NOT NULL, prefix TEXT NOT NULL, aircraft INTEGER NOT NULL,
+		PRIMARY KEY (hour, prefix)) WITHOUT ROWID;`,
+
+	// receiver health, altitude bands and notable aircraft (rollup.go); rollup_version marks hours to recompute
+	`ALTER TABLE hourly ADD COLUMN frames INTEGER;
+	ALTER TABLE hourly ADD COLUMN crc_failures INTEGER;
+	ALTER TABLE hourly ADD COLUMN fixed_bit_errors INTEGER;
+	ALTER TABLE hourly ADD COLUMN cpr_rejected INTEGER;
+	ALTER TABLE hourly ADD COLUMN reconnects INTEGER;
+	ALTER TABLE hourly ADD COLUMN silent_minutes INTEGER;
+	ALTER TABLE hourly ADD COLUMN signal_dbfs REAL;
+	ALTER TABLE hourly ADD COLUMN rollup_version INTEGER NOT NULL DEFAULT 1;
+	CREATE TABLE hourly_altitude (hour INTEGER NOT NULL, band INTEGER NOT NULL, positions INTEGER NOT NULL,
+		PRIMARY KEY (hour, band)) WITHOUT ROWID;
+	CREATE TABLE aircraft_seen (icao TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)
+		WITHOUT ROWID;
+	INSERT INTO aircraft_seen SELECT icao, min(first_seen), max(last_seen) FROM flights GROUP BY icao;
+	CREATE TABLE notable_events (kind TEXT NOT NULL, icao TEXT NOT NULL, flight_id INTEGER NOT NULL,
+		squawk TEXT NOT NULL DEFAULT '', t INTEGER NOT NULL, callsign TEXT,
+		PRIMARY KEY (kind, icao, flight_id, squawk)) WITHOUT ROWID;
+	CREATE INDEX notable_t ON notable_events(t);`,
 }
 
 // SchemaVersion is the schema version this build writes.

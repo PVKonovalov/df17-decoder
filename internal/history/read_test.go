@@ -167,8 +167,14 @@ func TestOpen_MigratesV1(t *testing.T) {
 
 	s := open(t, file, Options{})
 	defer s.Close()
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != 2 {
-		t.Errorf("schema version %d, want 2", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != 4 {
+		t.Errorf("schema version %d, want 4", v)
+	}
+	if n := queryInt(t, s, `SELECT count(*) FROM sqlite_master WHERE name IN ('hourly', 'hourly_country', 'hourly_operator')`); n != 3 {
+		t.Errorf("%d rollup tables", n)
+	}
+	if n := queryInt(t, s, `SELECT count(*) FROM aircraft_seen WHERE icao = '4840D6'`); n != 1 {
+		t.Error("aircraft_seen not filled from the flights")
 	}
 	if n := queryInt(t, s, `SELECT count(*) FROM pragma_table_info('flights') WHERE name = 'country'`); n != 0 {
 		t.Error("country column still there")

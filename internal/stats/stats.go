@@ -2,6 +2,7 @@ package stats
 
 import (
 	"maps"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,8 @@ type Stats struct {
 	CPRRejected        atomic.Uint64
 	CommBAmbiguous     atomic.Uint64 // DF20/21 MB fields that fit more than one register
 	CommBRejected      atomic.Uint64 // inferred registers inconsistent with the aircraft's recent state
+	SignalFrames       atomic.Uint64 // frames with a signal level (Beast)
+	signalPower        atomic.Uint64 // their summed linear power, × signalScale
 
 	mu      sync.Mutex
 	perDF   map[int]uint64
@@ -42,6 +45,17 @@ func (s *Stats) AddFrame(df int) {
 	s.perDF[df]++
 	s.mu.Unlock()
 }
+
+const signalScale = 1e9
+
+// AddSignal adds one frame's signal level in dBFS to the hourly average signal.
+func (s *Stats) AddSignal(dbfs float64) {
+	s.SignalFrames.Add(1)
+	s.signalPower.Add(uint64(math.Round(math.Pow(10, dbfs/10) * signalScale)))
+}
+
+// SignalPower returns the summed linear power of the frames counted in SignalFrames.
+func (s *Stats) SignalPower() float64 { return float64(s.signalPower.Load()) / signalScale }
 
 // AddMessage counts one accepted message at wall time now for the messages-per-second rate.
 func (s *Stats) AddMessage(now time.Time) {

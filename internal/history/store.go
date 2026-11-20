@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 	_ "modernc.org/sqlite"
 )
@@ -30,6 +31,9 @@ type Options struct {
 	QueueSize     int           // events buffered between flushes before new ones are dropped; 65536 when zero
 	Logger        *slog.Logger
 	Now           func() time.Time // wall clock for retention; time.Now when nil
+
+	Receiver       *geo.Point    // for the rollups' max range; nil leaves it unknown
+	StatsRetention time.Duration // rollups older than this are deleted daily; 0 keeps them
 }
 
 // Stats are the store's counters.
@@ -74,6 +78,10 @@ type Store struct {
 	dropped     atomic.Uint64
 	writeErrors atomic.Uint64
 	lastFlush   atomic.Int64 // unix ms
+
+	live liveSnapshots                 // counters at hour boundaries and silent minutes (RunRollups)
+	src  atomic.Pointer[RollupSources] // set by RunRollups
+	cur  currentCache                  // the partial current hour, for the stats API
 }
 
 // dsn builds the modernc.org/sqlite DSN for file with the given pragmas, in order.

@@ -28,7 +28,7 @@ If the backend API from `AGENT_PROMPT.md` isn't finished yet, stop and tell me i
 - Map: **Leaflet + react-leaflet**, OpenStreetMap tiles, no API keys. Show the OSM attribution.
 - Table: **TanStack Table** (`@tanstack/react-table`).
 - Styling: plain CSS or CSS modules, no UI framework. Support a dark theme (`prefers-color-scheme`), because people often watch planes at night.
-- Allowed runtime dependencies: `react`, `react-dom`, `leaflet`, `react-leaflet`, `@tanstack/react-table`. Allowed dev dependencies: `typescript`, `vite`, `@vitejs/plugin-react`, `@types/*`, `vitest`, `@testing-library/react`, `jsdom`, `eslint` with the TypeScript plugin. **Ask me before adding anything else.**
+- Allowed runtime dependencies: `react`, `react-dom`, `leaflet`, `react-leaflet`, `@tanstack/react-table`, `echarts` (the Statistics page only, imported through `echarts/core` in `web/src/stats/echarts.ts`). Allowed dev dependencies: `typescript`, `vite`, `@vitejs/plugin-react`, `@types/*`, `vitest`, `@testing-library/react`, `jsdom`, `eslint` with the TypeScript plugin. **Ask me before adding anything else.**
 
 ## Data flow
 

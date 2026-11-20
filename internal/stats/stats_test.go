@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -59,5 +60,14 @@ func TestConcurrentUse(t *testing.T) {
 	wg.Wait()
 	if s.Frames.Load() != 1000 {
 		t.Errorf("frames = %d", s.Frames.Load())
+	}
+}
+
+func TestSignal(t *testing.T) {
+	s := New(time.Now())
+	s.AddSignal(-10)
+	s.AddSignal(-20)
+	if s.SignalFrames.Load() != 2 || math.Abs(s.SignalPower()-0.11) > 1e-9 {
+		t.Errorf("frames %d power %v", s.SignalFrames.Load(), s.SignalPower())
 	}
 }

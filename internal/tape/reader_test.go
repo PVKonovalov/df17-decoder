@@ -217,3 +217,17 @@ func BenchmarkSeekEndOfHour(b *testing.B) {
 		rd.Close()
 	}
 }
+
+func TestBytesSince(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tape")
+	tp := Open(dir)
+	if n, from := tp.BytesSince(t0); n != 0 || !from.IsZero() {
+		t.Errorf("empty: %d %v", n, from)
+	}
+	recordAt(t, dir, false, 0, 1, 3600, 3601, 7200)
+	all, from := tp.BytesSince(t0.Add(-time.Hour))
+	last, fromLast := tp.BytesSince(t0.Add(90 * time.Minute))
+	if uint64(all) != dirSize(dir) || !from.Equal(t0) || last <= 0 || last >= all || !fromLast.Equal(t0.Add(2*time.Hour)) {
+		t.Errorf("all %d from %v, last %d from %v (dir %d)", all, from, last, fromLast, dirSize(dir))
+	}
+}

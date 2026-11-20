@@ -70,6 +70,25 @@ func (tp *Tape) files() []segmentFile {
 	return out
 }
 
+// BytesSince returns the size of the segments (including the active one) that start at or after since, and the
+// start of the oldest of them; zero when there are none. It measures how fast the tape grows.
+func (tp *Tape) BytesSince(since time.Time) (int64, time.Time) {
+	var n int64
+	var oldest time.Time
+	for _, f := range tp.files() {
+		if f.start.Before(since) {
+			continue
+		}
+		if fi, err := os.Stat(f.path); err == nil {
+			n += fi.Size()
+			if oldest.IsZero() {
+				oldest = f.start
+			}
+		}
+	}
+	return n, oldest
+}
+
 // Reader returns the frames of a tape in time order from a seek point.
 type Reader struct {
 	files []segmentFile

@@ -20,6 +20,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/playback"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/storage"
 	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 )
@@ -53,6 +54,7 @@ type Deps struct {
 	Tape     *tape.Recorder     // raw frame recorder; nil when disabled
 	TapeData *tape.Tape         // the recording read back; nil when the tape is disabled
 	Playback *playback.Manager  // tape playback over /api/ws; nil when disabled
+	Storage  *storage.Reporter  // disk usage for /api/storage
 	// CoverageInterval is how often /api/ws pushes the outline; 10 s when zero.
 	CoverageInterval time.Duration
 	// GridInterval is how often /api/ws pushes the coverage grid; 60 s when zero.
@@ -96,6 +98,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/history/flights/{id}", s.historyFlight)
 	mux.HandleFunc("GET /api/history/at", s.historyAt)
 	mux.HandleFunc("GET /api/history/timeline", s.historyTimeline)
+	mux.HandleFunc("GET /api/storage", s.storage)
+	mux.HandleFunc("GET /api/stats/hourly", s.statsHourly)
+	mux.HandleFunc("GET /api/stats/countries", s.statsCountries)
+	mux.HandleFunc("GET /api/stats/operators", s.statsOperators)
+	mux.HandleFunc("GET /api/stats/range-daily", s.statsRangeDaily)
+	mux.HandleFunc("GET /api/stats/altitude", s.statsAltitude)
+	mux.HandleFunc("GET /api/stats/notable", s.statsNotable)
 	mux.HandleFunc("GET /api/tape/extent", s.tapeExtent)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /api/map", s.mapConfig)

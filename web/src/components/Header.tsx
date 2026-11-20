@@ -1,3 +1,4 @@
+import { linkClick, STATS_PATH } from '../route'
 import type { ConnState, State } from '../state/reducer'
 
 const connLabel: Record<ConnState, string> = {
@@ -69,6 +70,9 @@ export function Header({ state, panels }: { state: State; panels?: PanelToggles 
           </dd>
         </div>
       </dl>
+      <a className="header-link" href={STATS_PATH} onClick={linkClick(STATS_PATH)}>
+        Statistics
+      </a>
       {panels && (
         <div className="header-panels" role="group" aria-label="Show panels">
           {panels.onTable && <PanelButton label="Table" on={panels.table} onChange={panels.onTable} />}

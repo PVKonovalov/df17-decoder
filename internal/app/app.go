@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/playback"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/storage"
 	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 	"github.com/PVKonovalov/df17-decoder/internal/version"
@@ -105,10 +107,12 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 	)
 	if cfg.History.Enabled {
 		if hist, err = history.Open(history.Options{
-			File:          cfg.History.File,
-			FlushInterval: cfg.History.FlushInterval.D(),
-			Retention:     cfg.History.Retention.D(),
-			Logger:        log,
+			File:           cfg.History.File,
+			FlushInterval:  cfg.History.FlushInterval.D(),
+			Retention:      cfg.History.Retention.D(),
+			Logger:         log,
+			Receiver:       &receiver,
+			StatsRetention: cfg.Stats.Retention.D(),
 		}); err != nil {
 			return nil, err
 		}
@@ -167,6 +171,48 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 			LastFlightID:     lastID,
 		}),
 	}, nil
+}
+
+// tapeFiles joins the recorder's counters and the recorded files for the storage report.
+type tapeFiles struct {
+	*tape.Recorder
+	*tape.Tape
+}
+
+// storageReporter reports on the state dir (the working directory) and what the tape and history keep there.
+func (s *Service) storageReporter() *storage.Reporter {
+	dir, err := os.Getwd()
+	if err != nil {
+		dir = "."
+	}
+	src := storage.Sources{
+		StateDir:      dir,
+		TapeRetention: s.cfg.Tape.Retention.D(),
+		MinFreeBytes:  uint64(s.cfg.Tape.MinFreeMB) << 20,
+	}
+	if s.Tape != nil {
+		src.Tape = tapeFiles{s.Tape, s.TapeData}
+	}
+	if s.History != nil {
+		src.History = s.History
+	}
+	return storage.NewReporter(src)
+}
+
+// rollupSources are the live values the hourly rollups sample: the decoding and receiver counters and the tape size.
+func (s *Service) rollupSources() history.RollupSources {
+	src := history.RollupSources{Counters: func() history.Counters {
+		return history.Counters{
+			Messages: s.Stats.Messages.Load(), Frames: s.Stats.Frames.Load(), CRCFailures: s.Stats.CRCFailures.Load(),
+			FixedBitErrors: s.Stats.FixedBitErrors.Load(), CPRRejected: s.Stats.CPRRejected.Load(),
+			Reconnects: s.SourceStats().Reconnects, SignalFrames: s.Stats.SignalFrames.Load(),
+			SignalPower: s.Stats.SignalPower(),
+		}
+	}}
+	if s.Tape != nil {
+		src.TapeBytes = func() (int64, bool) { return s.Tape.Stats().Bytes, true }
+	}
+	return src
 }
 
 // playback returns the playback manager over the recorded tape, nil when the tape or playback is disabled.
@@ -230,6 +276,7 @@ func (s *Service) Run(ctx context.Context) error {
 			Tape:           s.Tape,
 			TapeData:       s.TapeData,
 			Playback:       s.playback(),
+			Storage:        s.storageReporter(),
 			Stats:          s.Stats,
 			Source:         s.SourceStats,
 			SourceURL:      s.cfg.Source.URL,
@@ -246,6 +293,7 @@ func (s *Service) Run(ctx context.Context) error {
 	defer stopHistory()
 	if s.History != nil {
 		hist.Go(func() { s.History.Run(histCtx) })
+		hist.Go(func() { s.History.RunRollups(histCtx, s.rollupSources()) })
 	}
 	var rec sync.WaitGroup
 	recCtx, stopTape := context.WithCancel(context.WithoutCancel(ctx))
@@ -361,6 +409,9 @@ func (s *Service) Ingest(ctx context.Context) error {
 func (s *Service) handle(f source.Frame) {
 	m, err := modes.Decode(f.Data, f.Time, s.opt)
 	s.Stats.AddFrame(m.DF)
+	if f.RSSI != nil {
+		s.Stats.AddSignal(*f.RSSI)
+	}
 	switch {
 	case errors.Is(err, modes.ErrCRC):
 		s.Stats.CRCFailures.Add(1)

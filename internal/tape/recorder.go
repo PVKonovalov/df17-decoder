@@ -53,6 +53,7 @@ type Stats struct {
 	Dropped       uint64 // full queue or paused
 	WriteErrors   uint64
 	LastFlush     time.Time
+	GuardDeleted  uint64 // segments deleted by the disk guard since start
 }
 
 type segment struct {
@@ -95,6 +96,7 @@ type Recorder struct {
 	oldest      atomic.Int64
 	newest      atomic.Int64
 	closedBytes atomic.Int64
+	guardDel    atomic.Uint64
 	cw          atomic.Pointer[countingWriter]
 }
 
@@ -141,6 +143,7 @@ func (r *Recorder) Stats() Stats {
 		FramesWritten: r.written.Load(),
 		Dropped:       r.dropped.Load(),
 		WriteErrors:   r.writeErrors.Load(),
+		GuardDeleted:  r.guardDel.Load(),
 	}
 	if cw := r.cw.Load(); cw != nil {
 		st.Bytes += cw.n.Load()
@@ -320,6 +323,7 @@ func (r *Recorder) guard() {
 			break
 		}
 		r.remove(segs[0])
+		r.guardDel.Add(1)
 		deleted = true
 		r.opt.Logger.Warn("tape: low disk space, deleted the oldest segment", "file", segs[0], "freeMB", free>>20)
 		if free, err = r.opt.FreeSpace(r.opt.Dir); err != nil {

@@ -74,6 +74,11 @@ playback:
   # A session paused this long frees its memory; pressing play again rebuilds it. 0: never.
   idleTimeout: 30m
 
+stats:
+  # Hourly rollups (aircraft per hour, countries, operators, range) need history.enabled.
+  # They are kept this long, independently of history.retention; 0 keeps them forever.
+  retention: 8760h
+
 api:
   # HTTP listen address.
   listen: ":8080"

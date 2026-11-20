@@ -16,6 +16,8 @@ export default defineConfig({
     // dist/app is gitignored; web/dist/index.html is the committed placeholder for builds without Node.
     outDir: 'dist/app',
     emptyOutDir: true,
+    // the lazy Statistics chunk holds tree-shaken ECharts (about 640 kB); the map page never loads it
+    chunkSizeWarningLimit: 700,
   },
   test: {
     environment: 'jsdom',

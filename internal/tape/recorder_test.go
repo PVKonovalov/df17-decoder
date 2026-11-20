@@ -235,7 +235,7 @@ func TestRecorder_DiskGuard(t *testing.T) {
 	capacity = 500
 	r.guard()
 	r.running.Store(true)
-	if st := r.Stats(); len(listSegments(dir)) != 0 || !st.Paused || st.Recording {
+	if st := r.Stats(); len(listSegments(dir)) != 0 || !st.Paused || st.Recording || st.GuardDeleted != 4 {
 		t.Fatalf("stats = %+v", st)
 	}
 	r.write(frame(t0.Add(5*time.Hour), 5))
