@@ -13,7 +13,8 @@ type Frame struct {
 	Data      []byte
 	Time      time.Time // local receive (or replay emission) time
 	Timestamp uint64    // 12 MHz receiver clock, 0 when the input has none
-	RSSI      *float64  // dBFS, Beast only
+	Signal    byte      // Beast signal byte as received, 0 when none (AVR)
+	RSSI      *float64  // dBFS from Signal, Beast only
 }
 
 // Source delivers frames to out until ctx is cancelled or the input ends (file replay).
@@ -62,6 +63,14 @@ type StatsSnapshot struct {
 	Malformed  uint64
 	Reconnects uint64
 	LastFrame  time.Time // zero if no frame yet
+}
+
+// SetConnected and AddFrame let sources outside this package (tape://) report through Stats.
+func (s *Stats) SetConnected(c bool) { s.connected.Store(c) }
+
+func (s *Stats) AddFrame() {
+	s.frames.Add(1)
+	s.lastFrame.Store(time.Now().UnixNano())
 }
 
 func (s *Stats) Snapshot() StatsSnapshot {

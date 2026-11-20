@@ -17,6 +17,7 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 )
 
@@ -323,5 +324,68 @@ func TestStats_History(t *testing.T) {
 	}
 	if _, ok := s["historyLastFlush"]; ok {
 		t.Error("historyLastFlush present before the first flush")
+	}
+}
+
+func TestTapeExtent(t *testing.T) {
+	get := func(d Deps) (int, string) {
+		d.Tracker, d.Stats = tracker.New(tracker.Options{TTL: time.Minute}), stats.New(time.Now())
+		w := httptest.NewRecorder()
+		New(d).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/tape/extent", nil))
+		return w.Code, w.Body.String()
+	}
+	if code, _ := get(Deps{}); code != http.StatusServiceUnavailable {
+		t.Errorf("disabled: %d", code)
+	}
+	if code, body := get(Deps{TapeData: tape.Open(filepath.Join(t.TempDir(), "none"))}); code != http.StatusOK || strings.TrimSpace(body) != `{"spans":[]}` {
+		t.Errorf("empty: %d %s", code, body)
+	}
+
+	dir := filepath.Join(t.TempDir(), "tape")
+	rec, err := tape.New(tape.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	for _, s := range []int{0, 10, 300} {
+		rec.Record(source.Frame{Data: make([]byte, 7), Time: t0.Add(time.Duration(s) * time.Second)})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec.Run(ctx)
+	code, body := get(Deps{TapeData: tape.Open(dir)})
+	want := `{"oldest":"2026-11-20T10:00:00Z","newest":"2026-11-20T10:05:00Z","spans":[` +
+		`{"from":"2026-11-20T10:00:00Z","to":"2026-11-20T10:00:10Z"},{"from":"2026-11-20T10:05:00Z","to":"2026-11-20T10:05:00Z"}]}`
+	if code != http.StatusOK || strings.TrimSpace(body) != want {
+		t.Errorf("%d %s", code, body)
+	}
+}
+
+func TestStats_Tape(t *testing.T) {
+	rec, err := tape.New(tape.Options{Dir: filepath.Join(t.TempDir(), "tape")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(Deps{
+		Tracker: tracker.New(tracker.Options{TTL: time.Minute}),
+		Stats:   stats.New(time.Now()),
+		Source:  func() source.StatsSnapshot { return source.StatsSnapshot{} },
+		Tape:    rec,
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stats", nil))
+	var s map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"tapeRecording", "tapePaused", "tapeBytes", "tapeFramesWritten", "tapeDropped", "tapeWriteErrors"} {
+		if _, ok := s[k]; !ok {
+			t.Errorf("missing %q in %v", k, s)
+		}
+	}
+	for _, k := range []string{"tapeOldest", "tapeNewest", "tapeLastFlush"} {
+		if _, ok := s[k]; ok {
+			t.Errorf("%q present on an empty tape", k)
+		}
 	}
 }

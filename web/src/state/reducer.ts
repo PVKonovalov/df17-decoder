@@ -1,4 +1,4 @@
-import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats, TrackPoint } from '../api/types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Playback, Receiver, Stats, TrackPoint } from '../api/types'
 
 /** Trail window until the server's "trails" message arrives. */
 export const DEFAULT_TRAIL_WINDOW_MS = 10 * 60 * 1000
@@ -19,7 +19,10 @@ export interface State {
   trailWindowMs: number // data time kept before each trail's newest point
   selected: string | null
   pendingSelect: string | null // aircraft to select once a snapshot contains it (from a shared link)
+  pendingAfterSeek: boolean // pendingSelect waits for the snapshots after a seek (the next full trails message)
   panSeq: number // incremented when the map should pan to the selection (selection from the table)
+  playback: Playback | null // tape counter state; null when the server has no playback
+  playbackError: string | null // the last error the server returned for a playback command
 }
 
 export type Action =
@@ -29,11 +32,15 @@ export type Action =
   | { type: 'coverage'; coverage: Coverage }
   | { type: 'coverageGrid'; grid: CoverageGrid }
   | { type: 'stats'; stats: Stats }
+  | { type: 'playback'; playback: Playback }
+  | { type: 'playbackError'; message: string }
+  | { type: 'clearPlaybackError' }
   | { type: 'trails'; windowMs: number; trails: Record<string, TrailPoint[]> }
   | { type: 'trailPoints'; points: Record<string, TrailPoint[]> }
   | { type: 'snapshot'; aircraft: Aircraft[] }
   | { type: 'select'; icao: string; pan?: boolean }
   | { type: 'clearSelection' }
+  | { type: 'selectAfterSeek'; icao: string }
 
 export const initialState: State = {
   conn: 'connecting',
@@ -47,13 +54,19 @@ export const initialState: State = {
   trailWindowMs: DEFAULT_TRAIL_WINDOW_MS,
   selected: null,
   pendingSelect: null,
+  pendingAfterSeek: false,
   panSeq: 0,
+  playback: null,
+  playbackError: null,
 }
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'connection':
-      return state.conn === action.conn ? state : { ...state, conn: action.conn }
+      // a dropped connection ends its playback session: the server starts the next one live
+      return state.conn === action.conn
+        ? state
+        : { ...state, conn: action.conn, playback: action.conn === 'connected' ? state.playback : null }
     case 'receiver':
       return { ...state, receiver: action.receiver }
     case 'map':
@@ -64,6 +77,12 @@ export function reducer(state: State, action: Action): State {
       return { ...state, coverageGrid: action.grid }
     case 'stats':
       return { ...state, stats: action.stats }
+    case 'playback':
+      return { ...state, playback: action.playback }
+    case 'playbackError':
+      return { ...state, playbackError: action.message }
+    case 'clearPlaybackError':
+      return state.playbackError === null ? state : { ...state, playbackError: null }
     case 'trails': {
       const trails = new Map<string, readonly TrailPoint[]>()
       for (const [icao, points] of Object.entries(action.trails)) {
@@ -72,7 +91,8 @@ export function reducer(state: State, action: Action): State {
           trails.set(icao, trail)
         }
       }
-      return { ...state, trails, trailWindowMs: action.windowMs }
+      // a full trails message follows every seek: a selection waiting for it may now apply
+      return { ...state, trails, trailWindowMs: action.windowMs, pendingAfterSeek: false }
     }
     case 'trailPoints':
       return applyTrailPoints(state, action.points)
@@ -86,12 +106,15 @@ export function reducer(state: State, action: Action): State {
         ...state,
         selected: action.icao,
         pendingSelect: null,
+        pendingAfterSeek: false,
         panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq,
       }
     case 'clearSelection':
       return state.selected === null && state.pendingSelect === null
         ? state
-        : { ...state, selected: null, pendingSelect: null }
+        : { ...state, selected: null, pendingSelect: null, pendingAfterSeek: false }
+    case 'selectAfterSeek':
+      return { ...state, selected: null, pendingSelect: action.icao, pendingAfterSeek: true }
   }
 }
 
@@ -109,7 +132,8 @@ function applySnapshot(state: State, list: Aircraft[]): State {
   if ([...trails.keys()].some((icao) => !aircraft.has(icao))) {
     trails = new Map([...trails].filter(([icao]) => aircraft.has(icao)))
   }
-  const pending = state.pendingSelect === null ? undefined : aircraft.get(state.pendingSelect)
+  const pending =
+    state.pendingSelect === null || state.pendingAfterSeek ? undefined : aircraft.get(state.pendingSelect)
   if (pending !== undefined) {
     return {
       ...state,

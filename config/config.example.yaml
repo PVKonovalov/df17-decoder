@@ -53,6 +53,27 @@ history:
   # Flights older than this are deleted hourly; 0 keeps everything.
   retention: 720h
 
+tape:
+  # Record every received frame to compressed hourly segments for playback.
+  enabled: true
+  # Relative to the working directory (the state dir under systemd); Docker: /var/lib/df17-decoder/tape
+  # Must be writable when enabled, or the service refuses to start (exit code 2).
+  dir: tape
+  # Segment length; must divide a day evenly (10m, 15m, 30m, 1h, 2h, ...).
+  segment: 1h
+  # Crash safety: at most this much recording is lost on a crash.
+  flushInterval: 5s
+  # Segments older than this are deleted hourly; 0 keeps everything (the disk guard still applies).
+  retention: 336h
+  # The oldest segments are deleted, then recording pauses, when free space drops below this.
+  minFreeMB: 1024
+
+playback:
+  # Concurrent tape playback sessions (one per browser tab in playback); 0 disables playback.
+  maxSessions: 4
+  # A session paused this long frees its memory; pressing play again rebuilds it. 0: never.
+  idleTimeout: 30m
+
 api:
   # HTTP listen address.
   listen: ":8080"

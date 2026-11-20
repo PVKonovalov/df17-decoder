@@ -34,15 +34,15 @@ func (s *fakeSink) closed() (ids []int64) {
 
 func newTrailTracker(t *testing.T, window time.Duration, sink FlightSink) (*Tracker, *fakeWall) {
 	t.Helper()
+	w := &fakeWall{t: t0}
 	tr := New(Options{
 		TTL:             60 * time.Second,
 		KnownAddressTTL: 60 * time.Second,
 		Resolver:        resolver(52.0, 4.4),
 		TrailWindow:     window,
 		Flights:         sink,
+		Clock:           w.now,
 	})
-	w := &fakeWall{t: t0}
-	tr.wall = w.now
 	return tr, w
 }
 
@@ -85,9 +85,11 @@ func TestTrail_Thinning(t *testing.T) {
 		alt   func(int) int
 		want  int
 	}{
-		{"straight leg keeps one point per minInterval", straight, level, 13},
-		{"turn of 1°/s keeps a point every 3°", func(i int) float64 { return float64(i) }, level, 21},
-		{"climb of 100 ft/s keeps a point every 200 ft", straight, func(i int) int { return 30000 + 100*i }, 31},
+		{"straight leg keeps one point per minInterval slot", straight, level, 13},
+		// slot starts at 0, 5, 10 s plus a point 3° after each: 0, 3, 5, 8, 10, …
+		{"turn of 1°/s keeps a point every 3°", func(i int) float64 { return float64(i) }, level, 25},
+		// slot starts plus a point 200 ft after each: 0, 2, 4, 5, 7, 9, 10, …
+		{"climb of 100 ft/s keeps a point every 200 ft", straight, func(i int) int { return 30000 + 100*i }, 37},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -97,6 +99,22 @@ func TestTrail_Thinning(t *testing.T) {
 				t.Errorf("points = %d, want %d", got, c.want)
 			}
 		})
+	}
+}
+
+func TestTrail_LateStartConverges(t *testing.T) {
+	// a straight, level leg: only the interval rule decides, the case where an elapsed-time rule never re-syncs
+	turn, climb := straight, level
+	full, _ := newTrailTracker(t, time.Minute, nil)
+	fly(full, t0, 300, turn, climb)
+	late, _ := newTrailTracker(t, time.Minute, nil)
+	for i := 97; i <= 300; i++ { // starts mid-slot, with a different last kept point
+		at := t0.Add(time.Duration(i) * time.Second)
+		late.Update(velMsg(at, turn(i)), nil)
+		late.Update(posMsg(at, 52.1+float64(i)*0.001, 4.5, climb(i), i%2 == 1), nil)
+	}
+	if a, b := trailOf(t, full), trailOf(t, late); !reflect.DeepEqual(a, b) {
+		t.Errorf("trails differ within the window:\n full %v\n late %v", a, b)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_SORT } from '../table/rows'
-import { normalizeIcao, parseUrl, replaceUrl, urlWith } from './url'
+import { normalizeIcao, normalizeTime, parseUrl, replaceUrl, urlWith } from './url'
 
 afterEach(() => {
   window.history.replaceState(null, '', '/')
@@ -8,7 +8,13 @@ afterEach(() => {
 
 describe('parseUrl', () => {
   it('gives the defaults for an empty query', () => {
-    expect(parseUrl('')).toEqual({ icao: null, filter: { text: '', withPosition: false }, sort: DEFAULT_SORT })
+    expect(parseUrl('')).toEqual({
+      icao: null,
+      filter: { text: '', withPosition: false },
+      sort: DEFAULT_SORT,
+      t: null,
+      speed: null,
+    })
   })
 
   it('reads the selection, filter and sort', () => {
@@ -16,6 +22,8 @@ describe('parseUrl', () => {
       icao: '738ABC',
       filter: { text: 'ELY', withPosition: true },
       sort: { id: 'altitude', desc: true },
+      t: null,
+      speed: null,
     })
     expect(parseUrl('?sort=callsign').sort).toEqual({ id: 'callsign', desc: false })
   })
@@ -28,6 +36,18 @@ describe('parseUrl', () => {
     expect(normalizeIcao(' 4ca123 ')).toBe('4CA123')
     expect(normalizeIcao('4CA12')).toBeNull()
     expect(normalizeIcao(null)).toBeNull()
+    expect(parseUrl('?t=yesterday&speed=3')).toMatchObject({ t: null, speed: null })
+    expect(parseUrl('?speed=1').speed).toBeNull()
+  })
+
+  it('reads a moment on the tape', () => {
+    expect(parseUrl('?icao=738ABC&t=2026-11-20T10:00:05.250Z&speed=16')).toMatchObject({
+      icao: '738ABC',
+      t: '2026-11-20T10:00:05Z',
+      speed: 16,
+    })
+    expect(normalizeTime('2026-11-20T12:00:00+02:00')).toBe('2026-11-20T10:00:00Z')
+    expect(normalizeTime('')).toBeNull()
   })
 })
 
@@ -43,6 +63,13 @@ describe('urlWith', () => {
     expect(urlWith(full, { icao: null, filter: { text: '', withPosition: false }, sort: DEFAULT_SORT })).toBe('?debug=1')
     expect(urlWith('?icao=738ABC', { icao: null })).toBe('')
     expect(urlWith('?q=x', { icao: '738ABC' })).toBe('?q=x&icao=738ABC')
+  })
+
+  it('round-trips a moment with the selection', () => {
+    const link = urlWith('?icao=738ABC', { t: '2026-11-20T10:00:00Z', speed: 4 })
+    expect(link).toBe('?icao=738ABC&t=2026-11-20T10%3A00%3A00Z&speed=4')
+    expect(parseUrl(link)).toMatchObject({ icao: '738ABC', t: '2026-11-20T10:00:00Z', speed: 4 })
+    expect(urlWith(link, { t: null, speed: 1 })).toBe('?icao=738ABC')
   })
 })
 

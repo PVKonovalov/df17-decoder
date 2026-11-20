@@ -1,6 +1,6 @@
-import { useEffect, type Dispatch } from 'react'
+import { useCallback, useEffect, useRef, type Dispatch } from 'react'
 import type { Action } from '../state/reducer'
-import type { Aircraft, Coverage, CoverageGrid, MapConfig, Receiver, Stats, TrackPoint } from './types'
+import type { Aircraft, Coverage, CoverageGrid, MapConfig, Playback, PlaybackControl, Receiver, Stats, TrackPoint } from './types'
 
 export const RECONNECT_MIN_MS = 1000
 export const RECONNECT_MAX_MS = 30_000
@@ -81,6 +81,16 @@ export function toAction(raw: unknown): Action | null {
         typeof data.ringNm === 'number'
         ? { type: 'coverageGrid', grid: data as unknown as CoverageGrid }
         : null
+    case 'playback':
+      return isObject(data) &&
+        (data.mode === 'live' || data.mode === 'playback') &&
+        typeof data.t === 'string' &&
+        typeof data.speed === 'number' &&
+        typeof data.playing === 'boolean'
+        ? { type: 'playback', playback: data as unknown as Playback }
+        : null
+    case 'error':
+      return isObject(data) && typeof data.message === 'string' ? { type: 'playbackError', message: data.message } : null
     default:
       return null
   }
@@ -88,11 +98,20 @@ export function toAction(raw: unknown): Action | null {
 
 type SocketCtor = new (url: string) => WebSocket
 
+/** SendControl sends a playback command; false when the socket isn't open. */
+export type SendControl = (ctl: PlaybackControl) => boolean
+
+/** Live is an open /api/ws connection: stop closes it for good, send sends a playback command. */
+export interface Live {
+  stop: () => void
+  send: SendControl
+}
+
 /**
  * connectLive opens url, dispatches every message as an action and the connection state, and reconnects with
- * backoff until the returned stop function is called.
+ * backoff until stop is called.
  */
-export function connectLive(url: string, dispatch: Dispatch<Action>, Socket: SocketCtor = WebSocket): () => void {
+export function connectLive(url: string, dispatch: Dispatch<Action>, Socket: SocketCtor = WebSocket): Live {
   let ws: WebSocket | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   let attempt = 0
@@ -125,15 +144,35 @@ export function connectLive(url: string, dispatch: Dispatch<Action>, Socket: Soc
 
   dispatch({ type: 'connection', conn: 'connecting' })
   connect()
-  return () => {
-    stopped = true
-    clearTimeout(timer)
-    ws?.close()
-    ws = null
+  return {
+    stop: () => {
+      stopped = true
+      clearTimeout(timer)
+      ws?.close()
+      ws = null
+    },
+    send: (ctl) => {
+      if (ws === null || ws.readyState !== OPEN) {
+        return false
+      }
+      ws.send(JSON.stringify({ type: 'playback', data: ctl }))
+      return true
+    },
   }
 }
 
-/** useLiveData keeps a /api/ws connection open for the lifetime of the component. */
-export function useLiveData(dispatch: Dispatch<Action>): void {
-  useEffect(() => connectLive(wsUrl(window.location), dispatch), [dispatch])
+const OPEN = 1 // WebSocket.OPEN
+
+/** useLiveData keeps a /api/ws connection open for the lifetime of the component and returns its send. */
+export function useLiveData(dispatch: Dispatch<Action>): SendControl {
+  const live = useRef<Live | null>(null)
+  useEffect(() => {
+    const l = connectLive(wsUrl(window.location), dispatch)
+    live.current = l
+    return () => {
+      l.stop()
+      live.current = null
+    }
+  }, [dispatch])
+  return useCallback((ctl) => live.current?.send(ctl) ?? false, [])
 }

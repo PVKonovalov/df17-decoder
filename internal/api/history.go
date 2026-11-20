@@ -44,14 +44,14 @@ func validICAO(v string) bool {
 	return err == nil && len(v) == 6
 }
 
-// historyFlights serves GET /api/history/flights?from=&to=&icao=&limit=: flights overlapping [from, to], newest
-// first, at most limit (default 100, max 1000).
+// historyFlights serves GET /api/history/flights?from=&to=&icao=&q=&limit=: flights overlapping [from, to], newest
+// first, at most limit (default 100, max 1000); q matches the ICAO address or the start of the callsign.
 func (s *server) historyFlights(w http.ResponseWriter, r *http.Request) {
 	if !s.historyStore(w) {
 		return
 	}
 	p := r.URL.Query()
-	q := history.FlightQuery{ICAO: p.Get("icao"), Limit: defaultHistoryLimit}
+	q := history.FlightQuery{ICAO: p.Get("icao"), Text: p.Get("q"), Limit: defaultHistoryLimit}
 	var errs []error
 	var err error
 	if q.From, err = parseTime("from", p.Get("from")); err != nil {
@@ -65,6 +65,9 @@ func (s *server) historyFlights(w http.ResponseWriter, r *http.Request) {
 	}
 	if q.ICAO != "" && !validICAO(q.ICAO) {
 		errs = append(errs, errors.New("icao must be 6 hex digits"))
+	}
+	if len(q.Text) > 16 {
+		errs = append(errs, errors.New("q must be at most 16 characters"))
 	}
 	if v := p.Get("limit"); v != "" {
 		if q.Limit, err = strconv.Atoi(v); err != nil || q.Limit < 1 || q.Limit > maxHistoryLimit {
@@ -124,6 +127,46 @@ func (s *server) historyAt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, states)
+}
+
+// historyTimeline serves GET /api/history/timeline?from=&to=&bucket=1m: flights active per bucket ([ADS-B, Mode-S
+// only]) and emergency events, for the timeline's density strip. At most history.MaxTimelineBuckets buckets.
+func (s *server) historyTimeline(w http.ResponseWriter, r *http.Request) {
+	if !s.historyStore(w) {
+		return
+	}
+	p := r.URL.Query()
+	var errs []error
+	from, err := parseTime("from", p.Get("from"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	to, err := parseTime("to", p.Get("to"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if err == nil && (from.IsZero() || to.IsZero() || !to.After(from)) {
+		errs = append(errs, errors.New("from and to are required, with to after from"))
+	}
+	bucket := time.Minute
+	if v := p.Get("bucket"); v != "" {
+		if bucket, err = time.ParseDuration(v); err != nil || bucket < time.Second {
+			errs = append(errs, fmt.Errorf("bucket must be a duration of at least 1s, got %q", v))
+		}
+	}
+	if len(errs) == 0 && to.Sub(from.Truncate(bucket)) > time.Duration(history.MaxTimelineBuckets)*bucket {
+		errs = append(errs, fmt.Errorf("at most %d buckets: use a larger bucket", history.MaxTimelineBuckets))
+	}
+	if len(errs) > 0 {
+		writeError(w, http.StatusBadRequest, errors.Join(errs...).Error())
+		return
+	}
+	tl, err := s.History.Timeline(r.Context(), from, to, bucket)
+	if err != nil {
+		s.historyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tl)
 }
 
 func (s *server) historyError(w http.ResponseWriter, err error) {

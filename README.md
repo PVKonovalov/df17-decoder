@@ -105,9 +105,9 @@ journalctl -u df17-decoder -f   # logs
 After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. The unit gives the
 service one writable directory, `/var/lib/df17-decoder`, and makes it the working directory, so
 `coverage.file: coverage.json` (or the full `/var/lib/df17-decoder/coverage.json`) keeps the coverage outline and
-grid across restarts, and the default `history.file: history.db` lands there too. A `coverage.file` or (with
-history enabled) `history.file` whose directory is missing or not writable is a config error: the service
-stops with exit code 2 and systemd doesn't restart it. To listen on a port
+grid across restarts, and the default `history.file: history.db` and `tape.dir: tape` land there too. A
+`coverage.file`, `tape.dir` or (with history enabled) `history.file` whose directory is missing or not writable
+is a config error: the service stops with exit code 2 and systemd doesn't restart it. To listen on a port
 below 1024, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 
 ### Docker
@@ -119,10 +119,11 @@ docker run -d --name df17 --restart unless-stopped -p 8080:8080 \
   -v df17-state:/var/lib/df17-decoder df17-decoder
 ```
 
-The `df17-state` volume keeps the coverage data when `coverage.file` is `/var/lib/df17-decoder/coverage.json`,
-and the flight history when `history.file` is `/var/lib/df17-decoder/history.db`. Use full paths here: the
-image's working directory is `/`, which the non-root user can't write. Keep the database on a volume, not a bind
-mount on a network file system: SQLite's WAL mode needs local file locking.
+The image's working directory is the state directory `/var/lib/df17-decoder`, as under systemd, so relative paths
+(the default `tape.dir: tape`, `history.file: history.db`, `coverage.file: coverage.json`) land on the
+`df17-state` volume. Size the volume for the tape (about 1 GB for the default 14 days, see
+[Tape recorder](#tape-recorder-and-playback)). Keep the database on a volume, not a bind mount on a network file
+system: SQLite's WAL mode needs local file locking.
 
 In the container, `localhost` is the container itself. Point `source.url` at the dump1090 host's address, or use
 `--network host` on Linux. For another architecture, use buildx, for example
@@ -136,14 +137,16 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/aircraft/{icao}` | One aircraft, or 404 |
 | `GET /api/stats` | Version, source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
-| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver`, `map` and `trails` (every current trail and the window) once, `coverage` every 10 s, `coverageGrid` every 60 s, `trailPoints` (only points this connection hasn't had), `aircraft` and `stats` every `api.streamInterval` |
+| `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver`, `map` and `trails` (every current trail and the window) once, `coverage` every 10 s, `coverageGrid` every 60 s, `trailPoints` (only points this connection hasn't had), `aircraft`, `stats` and (with playback) `playback` every `api.streamInterval`. The client may send playback commands, see [Playback](#playback) |
 | `GET /api/map` | Tile layer for the UI from the `map` config section |
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /api/coverage` | Range outline: the furthest accepted position per 2° of bearing (distance, point, altitude, time) |
 | `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
-| `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?limit=` (100, max 1000) |
+| `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?q=` (ICAO or callsign prefix), `?limit=` (100, max 1000) |
 | `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
 | `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
+| `GET /api/history/timeline?from=&to=&bucket=1m` | Flights active per bucket as `[ADS-B, Mode-S only]` (at most 2000 buckets) and emergency squawk events: the timeline's density strip |
+| `GET /api/tape/extent` | The tape's oldest and newest recorded time and its recorded spans (silences over 60 s split them); 503 when the tape is disabled |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, otherwise 503 |
 
 The `/api/history` endpoints return 503 when history is disabled. Every other path serves the [web UI](#web-ui)
@@ -211,8 +214,8 @@ $ curl -s localhost:8080/api/stats
 
 ## Flight history
 
-Track points are thinned before they are kept: a new point is stored when `trails.minInterval` (5 s) has passed,
-the track has turned by 3° or more, the altitude has changed by 200 ft or more, or the aircraft has landed or
+Track points are thinned before they are kept: a new point is stored for the first fix in each `trails.minInterval`
+(5 s) slot of the clock, when the track has turned by 3° or more, the altitude has changed by 200 ft or more, or the aircraft has landed or
 taken off. The live trails and the database use the same points.
 
 A flight is one continuous presence of an ICAO address. It opens with the first message, stays open while the
@@ -243,6 +246,72 @@ Mode-S-only aircraft are much smaller. Deleted flights free their space through 
 **Privacy.** Like `coverage.json`, the database reveals where your receiver is: every track ends at the edge of
 its range. Don't share the file, and keep real coordinates out of anything you publish. `*.db`, `*.db-wal`
 and `*.db-shm` are ignored by git and Docker builds.
+
+## Tape recorder and playback
+
+The service records every frame it receives, 24/7, to compressed hourly files, and the UI can play any moment
+back exactly as it looked live: map, table, trails, detail panel, signal levels, Comm-B data. Playback decodes the
+raw frames again through a second, separate tracker per browser tab, so it never touches the live view, the
+flight history, the coverage or the live stats.
+
+```yaml
+tape:
+  enabled: true
+  dir: tape             # relative to the working directory (the state dir under systemd and in Docker)
+  segment: 1h           # must divide a day evenly
+  flushInterval: 5s     # a crash loses at most this much
+  retention: 336h       # 14 days; segments are deleted hourly; 0 keeps everything
+  minFreeMB: 1024       # below this free space the oldest segments go, then recording pauses
+
+playback:
+  maxSessions: 4        # browser tabs in playback at once; 0 disables playback
+  idleTimeout: 30m      # a session paused this long frees its memory; play rebuilds it
+```
+
+**Format.** `tape/YYYY/MM/DD/YYYYMMDDTHHMMSSZ.tape.gz`, one file per UTC segment. Inside the gzip stream: a header
+(`DF17TAPE`, format version 1, segment start in unix ns), then per frame the time since the previous frame
+(uvarint ns), the receiver's 48-bit 12 MHz timestamp, the Beast signal byte (0 for AVR), the length and the frame
+bytes. The file being written is `….tape.gz.part`; it is renamed when the hour ends and finalized at the next start
+after a crash. A cut-off tail reads fine up to the last flush.
+
+**Disk use.** About 14 bytes per frame: at 55 frames/s, about 65 MB a day, 0.9 GB for the default 14 days.
+`/api/stats` reports `tapeRecording`, `tapePaused`, `tapeOldest`, `tapeNewest`, `tapeBytes`, `tapeFramesWritten`,
+`tapeDropped` and `tapeWriteErrors`. Recording never slows decoding: a full write queue drops (and counts) frames.
+
+**Privacy.** A tape reveals where the receiver is, just like `coverage.json` and the history database. `/tape/`
+and `*.tape.gz*` are ignored by git and Docker builds; don't publish tape files.
+
+### Playback
+
+The **tape deck** under the header:
+
+- **● REC** is red while recording, amber when frames are dropped, writes fail or recording is paused because the
+  disk is low (hover for the reason), and grey when the tape is disabled.
+- **⏮** goes to the oldest recording, **⏪** back 10 s (Shift: 1 min). In playback also **⏯** play/pause,
+  **⏩** speed (1×, 2×, 4×, 8×, 16×, 60×) and **⏭ LIVE**.
+- The **tape counter** shows the playback time (with the date when it isn't today); click it to type a date and
+  time. It flashes when playback jumps over a silence of more than a minute.
+- The **timeline** shows the recorded spans with gaps hatched; click or drag to seek, and zoom to 1 hour, 6 hours,
+  1 day or the whole tape. With `history.enabled` it also shows the traffic (flights per minute, ADS-B darker) and
+  red markers for emergency squawks, and the deck gets a **Find a flight** box: pick a callsign or ICAO to wind
+  the tape to 30 s before the flight and select it.
+- **Keyboard** (not while typing): Space play/pause, ←/→ ±10 s, Shift+←/→ ±1 min, L live.
+- **Moment links:** `/?t=2026-11-20T10:00:00Z&speed=4&icao=738ABC` opens playback at that moment with that
+  aircraft selected. **Copy link** in the detail panel includes the moment while in playback.
+
+A seek rebuilds the state from the tape, starting `max(trails.window, tracker.ttl) + 1m` before the target, so
+aircraft and trails look exactly as they did live. Pausing stops the clock, so nothing expires. Playback that
+catches up with now returns to live by itself; at 1× it stays behind, like a time-shifted recording.
+
+**Protocol.** On `/api/ws` the client sends `{"type":"playback","data":{"action":…}}` with `play`, `pause`,
+`live`, `seek` (`"t"`: RFC 3339), `speed` (`"speed"`) or `step` (`"seconds"`, ±). While in playback, `aircraft`,
+`trails` (a full one after every seek) and `trailPoints` come from the session; `stats` and coverage stay live.
+Every update carries `{"type":"playback","data":{"mode","t","speed","playing","gapSkipped","tapeStart","tapeEnd"}}`.
+An invalid command gets `{"type":"error","data":{"message"}}` back.
+
+**Replaying a tape as the input.** `source.url: tape://<dir>?from=<RFC 3339>&speed=<x>` (speed 0: as fast as
+possible) feeds a tape through the whole service instead of a receiver, for example on another machine; recording
+is off while the input is a tape.
 
 ## Web UI
 
@@ -282,6 +351,8 @@ there's nothing else to deploy.
 - **Live data:** the page receives everything over one WebSocket (`/api/ws`) and never polls. The header
   shows the aircraft count, messages per second, the receiver source status and the connection state. The
   page reconnects with backoff by itself.
+- **Tape deck:** the bar under the header shows **● REC** and the playback controls, see
+  [Playback](#playback).
 - Light and dark themes follow the OS setting. On narrow screens the map sits above the table; on wide
   screens a splitter between them can be dragged.
 
@@ -372,6 +443,9 @@ source (AVR / Beast / file) ──chan Frame──▶ app: modes.Decode ──�
   Each decoder cites its section of [The 1090 MHz Riddle](https://mode-s.org/1090mhz/).
 - `internal/tracker`: the aircraft table (one writer, many readers via copies), the known-address filter, CPR
   position resolving with range and speed checks, TTL expiry, thinned trails and flight segmentation.
+- `internal/tape`: the raw frame recorder (hourly gzip segments, retention, disk guard), the reader (seek across
+  segments, gaps, extent) and the `tape://` source. `internal/playback`: per-connection sessions that decode the
+  tape into their own tracker, aged by a virtual clock.
 - `internal/history`: the optional SQLite store (a non-blocking `tracker.FlightSink`, batched writer, migrations,
   retention) and its read queries.
 - `internal/api`: HTTP handlers, the `/api/ws` WebSocket and the embedded UI. `internal/stats`: atomic

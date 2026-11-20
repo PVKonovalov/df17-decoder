@@ -17,8 +17,10 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/history"
+	"github.com/PVKonovalov/df17-decoder/internal/playback"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 )
 
@@ -48,6 +50,9 @@ type Deps struct {
 	Tracker  *tracker.Tracker
 	Coverage *coverage.Coverage // range outline; nil serves an empty one
 	History  *history.Store     // flight history; nil when disabled
+	Tape     *tape.Recorder     // raw frame recorder; nil when disabled
+	TapeData *tape.Tape         // the recording read back; nil when the tape is disabled
+	Playback *playback.Manager  // tape playback over /api/ws; nil when disabled
 	// CoverageInterval is how often /api/ws pushes the outline; 10 s when zero.
 	CoverageInterval time.Duration
 	// GridInterval is how often /api/ws pushes the coverage grid; 60 s when zero.
@@ -90,6 +95,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/history/flights", s.historyFlights)
 	mux.HandleFunc("GET /api/history/flights/{id}", s.historyFlight)
 	mux.HandleFunc("GET /api/history/at", s.historyAt)
+	mux.HandleFunc("GET /api/history/timeline", s.historyTimeline)
+	mux.HandleFunc("GET /api/tape/extent", s.tapeExtent)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /api/map", s.mapConfig)
 	mux.HandleFunc("GET /api/coverage", s.coverage)
@@ -245,6 +252,39 @@ type statsResponse struct {
 	CommBRejected      uint64         `json:"commBRejected"`
 	Aircraft           int            `json:"aircraft"`
 	*historyStats
+	*tapeStats
+}
+
+// tapeStats are in statsResponse only when the tape is enabled.
+type tapeStats struct {
+	TapeRecording     bool       `json:"tapeRecording"`
+	TapePaused        bool       `json:"tapePaused"` // free disk space below tape.minFreeMB
+	TapeOldest        *time.Time `json:"tapeOldest,omitempty"`
+	TapeNewest        *time.Time `json:"tapeNewest,omitempty"`
+	TapeBytes         int64      `json:"tapeBytes"`
+	TapeFramesWritten uint64     `json:"tapeFramesWritten"`
+	TapeDropped       uint64     `json:"tapeDropped"`
+	TapeWriteErrors   uint64     `json:"tapeWriteErrors"`
+	TapeLastFlush     *time.Time `json:"tapeLastFlush,omitempty"`
+	PlaybackSessions  *int       `json:"playbackSessions,omitempty"` // when playback is enabled
+}
+
+// tapeExtent serves GET /api/tape/extent: the oldest and newest recorded times and the recorded spans (gaps over
+// a minute split them), or 503 when the tape is disabled.
+func (s *server) tapeExtent(w http.ResponseWriter, _ *http.Request) {
+	if s.TapeData == nil {
+		writeError(w, http.StatusServiceUnavailable, "the tape is disabled (tape.enabled)")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.TapeData.Extent())
+}
+
+// optTime returns &t, or nil for the zero time.
+func optTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // historyStats are in statsResponse only when history is enabled.
@@ -303,12 +343,26 @@ func (s *server) statsSnapshot() statsResponse {
 			resp.HistoryLastFlush = &h.LastFlush
 		}
 	}
+	if s.Tape != nil {
+		t := s.Tape.Stats()
+		resp.tapeStats = &tapeStats{
+			TapeRecording: t.Recording, TapePaused: t.Paused,
+			TapeOldest: optTime(t.Oldest), TapeNewest: optTime(t.Newest), TapeBytes: t.Bytes,
+			TapeFramesWritten: t.FramesWritten, TapeDropped: t.Dropped, TapeWriteErrors: t.WriteErrors,
+			TapeLastFlush: optTime(t.LastFlush),
+		}
+		if s.Playback != nil {
+			resp.PlaybackSessions = new(s.Playback.Active())
+		}
+	}
 	return resp
 }
 
 // aircraftByICAO returns the current aircraft sorted by ICAO address.
-func (s *server) aircraftByICAO() []tracker.Aircraft {
-	list := s.Tracker.Snapshot()
+func (s *server) aircraftByICAO() []tracker.Aircraft { return sortedAircraft(s.Tracker) }
+
+func sortedAircraft(tr *tracker.Tracker) []tracker.Aircraft {
+	list := tr.Snapshot()
 	slices.SortFunc(list, func(a, b tracker.Aircraft) int { return cmp.Compare(a.ICAO, b.ICAO) })
 	return list
 }

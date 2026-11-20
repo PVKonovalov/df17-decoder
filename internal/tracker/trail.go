@@ -98,12 +98,15 @@ func newTrackPoint(a *Aircraft, pos Position) TrackPoint {
 	return p
 }
 
-// keep reports whether p is worth keeping after the previously kept point prev.
+// keep reports whether p is worth keeping after the previously kept point prev. The interval rule uses fixed
+// minInterval slots of unix time, not the time since prev, so a tracker started later (playback preroll) keeps
+// the same points as one that has run all along once both keep the first point of a slot.
 func (p TrackPoint) keep(prev TrackPoint, minInterval time.Duration) bool {
+	slot := minInterval.Milliseconds()
 	switch {
 	case p.T <= prev.T:
 		return false
-	case p.T-prev.T >= minInterval.Milliseconds(), p.OnGround != prev.OnGround:
+	case floorDiv(p.T, slot) > floorDiv(prev.T, slot), p.OnGround != prev.OnGround:
 		return true
 	case p.Known&prev.Known&KnownTrack != 0 && angleDiff(p.Track, prev.Track) >= trailTurnDeg:
 		return true
@@ -111,6 +114,14 @@ func (p TrackPoint) keep(prev TrackPoint, minInterval time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
 }
 
 // trimTrail drops the points older than window before the newest one.

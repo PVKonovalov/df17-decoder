@@ -1,10 +1,27 @@
+import { PLAYBACK_SPEEDS } from '../api/types'
 import { COLUMN_IDS, DEFAULT_SORT, type ColumnId, type Filter, type Sort } from '../table/rows'
 
-/** UrlState is what a shareable link carries: the selected aircraft and the table's filter and sort. */
+/**
+ * UrlState is what a shareable link carries: the selected aircraft, the table's filter and sort, and a moment on
+ * the tape (playback time and speed).
+ */
 export interface UrlState {
   icao: string | null
   filter: Filter
   sort: Sort
+  t: string | null // RFC 3339 UTC
+  speed: number | null // a playback speed other than 1
+}
+
+/** normalizeTime returns raw as an RFC 3339 UTC time (whole seconds), or null when it isn't a time. */
+export function normalizeTime(raw: string | null): string | null {
+  const ms = raw === null || raw.trim() === '' ? NaN : Date.parse(raw)
+  return Number.isNaN(ms) ? null : new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z')
+}
+
+function parseSpeed(raw: string | null): number | null {
+  const v = Number(raw)
+  return v !== 1 && PLAYBACK_SPEEDS.some((s) => s === v) ? v : null
 }
 
 const ICAO_RE = /^[0-9A-F]{6}$/
@@ -17,7 +34,8 @@ export function normalizeIcao(raw: string | null): string | null {
 
 /**
  * parseUrl reads a query string: icao=738ABC, q=<filter text>, pos=1 (with position only) and
- * sort=<column> or sort=-<column> (descending). Missing or invalid values give the defaults.
+ * sort=<column> or sort=-<column> (descending), t=<RFC 3339> and speed=<x>. Missing or invalid values give the
+ * defaults.
  */
 export function parseUrl(search: string): UrlState {
   const p = new URLSearchParams(search)
@@ -28,6 +46,8 @@ export function parseUrl(search: string): UrlState {
     icao: normalizeIcao(p.get('icao')),
     filter: { text: p.get('q') ?? '', withPosition: p.get('pos') === '1' },
     sort: id === undefined ? DEFAULT_SORT : { id: id satisfies ColumnId, desc },
+    t: normalizeTime(p.get('t')),
+    speed: parseSpeed(p.get('speed')),
   }
 }
 
@@ -54,6 +74,12 @@ export function urlWith(search: string, patch: Partial<UrlState>): string {
   if (patch.sort !== undefined) {
     const { id, desc } = patch.sort
     put('sort', id === DEFAULT_SORT.id && desc === DEFAULT_SORT.desc ? null : `${desc ? '-' : ''}${id}`)
+  }
+  if (patch.t !== undefined) {
+    put('t', patch.t)
+  }
+  if (patch.speed !== undefined) {
+    put('speed', patch.speed === null || patch.speed === 1 ? null : String(patch.speed))
   }
   const out = p.toString()
   return out === '' ? '' : `?${out}`

@@ -17,6 +17,9 @@
   --link: #0969da;
   --new-bg: rgba(191, 135, 0, 0.25);
   --new: #bf8700;
+  --rec: #d1242f;
+  --playback: #8250df;
+  --playback-bg: rgba(130, 80, 223, 0.12);
 
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
@@ -44,6 +47,9 @@
     --link: #58a6ff;
     --new-bg: rgba(210, 153, 34, 0.3);
     --new: #e3b341;
+    --rec: #ff6b6b;
+    --playback: #a371f7;
+    --playback-bg: rgba(163, 113, 247, 0.16);
   }
 }
 
@@ -690,4 +696,296 @@ body {
   fill: var(--sel);
   fill-opacity: 0.07;
   stroke-opacity: 0.8;
+}
+
+/* Tape deck: REC indicator, transport, counter, playback badge and timeline (deck/Deck.tsx). */
+.deck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 4px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.deck.deck-playback {
+  background: var(--playback-bg);
+  border-bottom-color: var(--playback);
+}
+
+.deck button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.deck button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.deck button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.deck button[aria-pressed='true'] {
+  border-color: var(--playback);
+  color: var(--playback);
+}
+
+.rec {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.rec-rec {
+  color: var(--rec);
+}
+
+.rec-warn {
+  color: var(--warn);
+  cursor: help;
+}
+
+.rec-off {
+  color: var(--muted);
+}
+
+.deck-transport {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.deck-live {
+  font-weight: 600;
+}
+
+.deck-speed {
+  font-size: 12px;
+}
+
+.deck .deck-counter {
+  min-width: 80px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck .deck-counter.gap {
+  animation: counter-gap 1s ease-out;
+}
+
+@keyframes counter-gap {
+  from {
+    background: var(--new-bg);
+  }
+}
+
+.deck-counter-input {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--playback);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.deck-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: var(--playback);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.deck-timeline {
+  flex: 1 1 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.deck-time-label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.timeline-track {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  /* hatching shows the gaps: spans are drawn over it */
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--border) 4px 5px);
+}
+
+.timeline-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--playback);
+  border-right: 1px solid var(--playback);
+}
+
+.timeline-span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--playback-bg);
+}
+
+.timeline-head {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--playback);
+  pointer-events: none;
+}
+
+.timeline-head.dragging {
+  width: 3px;
+}
+
+.deck-zoom {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.deck-zoom button {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.deck-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-radius: 4px;
+  padding: 2px 4px 2px 8px;
+}
+
+.deck-error button {
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0 4px;
+}
+
+.app.playback .map-pane::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--playback);
+  pointer-events: none;
+  z-index: 1001; /* above the Leaflet panes and controls */
+}
+
+.timeline-stack {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.timeline-stack .timeline-track {
+  flex: none;
+}
+
+/* traffic density over the timeline (history.enabled); keep its height in sync with STRIP_H in Deck.tsx */
+.timeline-density {
+  position: relative;
+  height: 16px;
+}
+
+.timeline-density svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.density-all {
+  fill: var(--playback-bg);
+  stroke: none;
+}
+
+.density-adsb {
+  fill: var(--playback);
+  opacity: 0.45;
+}
+
+.deck .timeline-event {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
+  padding: 0;
+  border: none;
+  border-radius: 1px;
+  background: var(--bad);
+}
+
+.deck-search {
+  position: relative;
+}
+
+.deck-search input {
+  font: inherit;
+  width: 140px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.deck-results {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 1100; /* above the map */
+  min-width: 260px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.deck-results li.muted {
+  padding: 4px 8px;
+}
+
+.deck .deck-results button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  white-space: nowrap;
 }

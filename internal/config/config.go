@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,6 +42,8 @@ type Config struct {
 	Tracker  Tracker  `yaml:"tracker"`
 	Trails   Trails   `yaml:"trails"`
 	History  History  `yaml:"history"`
+	Tape     Tape     `yaml:"tape"`
+	Playback Playback `yaml:"playback"`
 	API      API      `yaml:"api"`
 	Map      Map      `yaml:"map"`
 	Coverage Coverage `yaml:"coverage"`
@@ -83,6 +86,22 @@ type History struct {
 	FlushInterval Duration `yaml:"flushInterval"`
 	FlightGap     Duration `yaml:"flightGap"`
 	Retention     Duration `yaml:"retention"`
+}
+
+// Tape configures the raw frame recorder used for playback.
+type Tape struct {
+	Enabled       bool     `yaml:"enabled"`
+	Dir           string   `yaml:"dir"`
+	Segment       Duration `yaml:"segment"`
+	FlushInterval Duration `yaml:"flushInterval"`
+	Retention     Duration `yaml:"retention"`
+	MinFreeMB     int      `yaml:"minFreeMB"`
+}
+
+// Playback limits the per-connection tape playback sessions.
+type Playback struct {
+	MaxSessions int      `yaml:"maxSessions"`
+	IdleTimeout Duration `yaml:"idleTimeout"`
 }
 
 type API struct {
@@ -132,7 +151,16 @@ func Default() Config {
 			FlightGap:     Duration(10 * time.Minute),
 			Retention:     Duration(720 * time.Hour),
 		},
-		API: API{Listen: ":8080", StreamInterval: Duration(time.Second)},
+		Tape: Tape{
+			Enabled:       true,
+			Dir:           "tape",
+			Segment:       Duration(time.Hour),
+			FlushInterval: Duration(5 * time.Second),
+			Retention:     Duration(336 * time.Hour),
+			MinFreeMB:     1024,
+		},
+		Playback: Playback{MaxSessions: 4, IdleTimeout: Duration(30 * time.Minute)},
+		API:      API{Listen: ":8080", StreamInterval: Duration(time.Second)},
 		Map: Map{
 			TileURL:     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 			Attribution: `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`,
@@ -219,6 +247,19 @@ func (c Config) Validate() error {
 		}
 	}
 
+	seg := c.Tape.Segment.D()
+	check(seg > 0 && (24*time.Hour)%seg == 0, "tape.segment must divide a day evenly (e.g. 15m, 1h), got %s", seg)
+	check(c.Tape.FlushInterval > 0 && c.Tape.FlushInterval < c.Tape.Segment, "tape.flushInterval must be positive and shorter than tape.segment, got %s", c.Tape.FlushInterval.D())
+	check(c.Tape.Retention >= 0, "tape.retention must be >= 0, got %s", c.Tape.Retention.D())
+	check(c.Tape.MinFreeMB >= 0, "tape.minFreeMB must be >= 0, got %d", c.Tape.MinFreeMB)
+	check(c.Playback.MaxSessions >= 0, "playback.maxSessions must be >= 0, got %d", c.Playback.MaxSessions)
+	check(c.Playback.IdleTimeout >= 0, "playback.idleTimeout must be >= 0, got %s", c.Playback.IdleTimeout.D())
+	if c.Tape.Enabled {
+		if err := checkTapeDir(c.Tape.Dir); err != nil {
+			errs = append(errs, fmt.Errorf("tape.dir %q: %w", c.Tape.Dir, err))
+		}
+	}
+
 	_, _, err := net.SplitHostPort(c.API.Listen)
 	check(err == nil, "api.listen must be host:port, got %q", c.API.Listen)
 	check(c.API.StreamInterval > 0, "api.streamInterval must be positive, got %s", c.API.StreamInterval.D())
@@ -248,6 +289,17 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// checkTapeDir checks that dir, or its parent when dir doesn't exist yet, is a writable directory.
+func checkTapeDir(dir string) error {
+	if dir == "" {
+		return errors.New("must be set when tape.enabled is true")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return checkWritableDir(filepath.Dir(filepath.Clean(dir)))
+	}
+	return checkWritableDir(dir)
 }
 
 // checkWritableDir returns an error when dir is missing, not a directory, or a temporary file can't be created
@@ -287,7 +339,13 @@ func (s Source) Endpoint() (scheme, address string, err error) {
 			return "", "", fmt.Errorf("source.url %q: missing file path", s.URL)
 		}
 		return u.Scheme, path, nil
+	case "tape":
+		dir, _, _, err := tape.ParseURL(s.URL)
+		if err != nil {
+			return "", "", fmt.Errorf("source.url: %w", err)
+		}
+		return u.Scheme, dir, nil
 	default:
-		return "", "", fmt.Errorf("source.url %q: scheme must be tcp, beast or file", s.URL)
+		return "", "", fmt.Errorf("source.url %q: scheme must be tcp, beast, file or tape", s.URL)
 	}
 }

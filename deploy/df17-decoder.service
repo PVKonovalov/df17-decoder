@@ -17,8 +17,8 @@ RestartSec=5s
 RestartPreventExitStatus=2
 
 # Unprivileged throwaway user. The only writable place is the state directory /var/lib/df17-decoder,
-# which is also the working directory, so a relative coverage.file (coverage.json) and history.file
-# (history.db, with its -wal and -shm files) are kept there.
+# which is also the working directory, so a relative coverage.file (coverage.json), history.file
+# (history.db, with its -wal and -shm files) and tape.dir (tape, the raw frame recording) are kept there.
 DynamicUser=yes
 StateDirectory=df17-decoder
 WorkingDirectory=%S/df17-decoder

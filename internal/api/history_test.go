@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,7 +69,7 @@ func getJSON(t *testing.T, h http.Handler, path string, v any) int {
 
 func TestHistory_Disabled(t *testing.T) {
 	h := historyHandler(t, false)
-	for _, p := range []string{"/api/history/flights", "/api/history/flights/1", "/api/history/at?t=0"} {
+	for _, p := range []string{"/api/history/flights", "/api/history/flights/1", "/api/history/at?t=0", "/api/history/timeline?from=0&to=1"} {
 		if code := getJSON(t, h, p, nil); code != http.StatusServiceUnavailable {
 			t.Errorf("%s: %d, want 503", p, code)
 		}
@@ -91,7 +92,10 @@ func TestHistory_Flights(t *testing.T) {
 	if getJSON(t, h, "/api/history/flights?limit=1", &list); len(list) != 1 {
 		t.Errorf("limit 1 = %v", list)
 	}
-	for _, q := range []string{"from=yesterday", "icao=XYZ", "limit=0", "limit=5000", "from=2000&to=1000"} {
+	if getJSON(t, h, "/api/history/flights?q=klm", &list); len(list) != 1 || list[0]["id"].(float64) != 1 {
+		t.Errorf("q=klm = %v", list)
+	}
+	for _, q := range []string{"from=yesterday", "icao=XYZ", "limit=0", "limit=5000", "from=2000&to=1000", "q=" + strings.Repeat("A", 17)} {
 		if code := getJSON(t, h, "/api/history/flights?"+q, nil); code != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", q, code)
 		}
@@ -145,6 +149,24 @@ func TestHistory_At(t *testing.T) {
 	for _, q := range []string{"", "?t=", "?t=soon"} {
 		if code := getJSON(t, h, "/api/history/at"+q, nil); code != http.StatusBadRequest {
 			t.Errorf("%q: %d, want 400", q, code)
+		}
+	}
+}
+
+func TestHistory_Timeline(t *testing.T) {
+	h := historyHandler(t, true)
+	var tl history.Timeline
+	q := "/api/history/timeline?from=" + hT0.Format(time.RFC3339) + "&to=" + hT0.Add(3*time.Minute).Format(time.RFC3339)
+	if code := getJSON(t, h, q, &tl); code != http.StatusOK || tl.Bucket != "1m0s" || len(tl.Buckets) != 3 || tl.Buckets[0] != [2]int{1, 1} || tl.Buckets[1] != [2]int{} {
+		t.Fatalf("%d %+v", code, tl)
+	}
+	if getJSON(t, h, q+"&bucket=30s", &tl); len(tl.Buckets) != 6 {
+		t.Errorf("30 s buckets: %+v", tl)
+	}
+	for _, bad := range []string{"", "from=0", "from=1000&to=1000", "from=0&to=1000&bucket=1ms", "from=0&to=1000&bucket=x",
+		"from=0&to=" + strconv.FormatInt(int64(history.MaxTimelineBuckets+1)*60_000, 10)} {
+		if code := getJSON(t, h, "/api/history/timeline?"+bad, nil); code != http.StatusBadRequest {
+			t.Errorf("%q: %d, want 400", bad, code)
 		}
 	}
 }

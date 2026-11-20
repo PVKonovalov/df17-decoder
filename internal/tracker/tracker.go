@@ -22,11 +22,12 @@ type Options struct {
 	Stats           *stats.Stats
 	Coverage        CoverageRecorder // optional; receives every accepted position
 
-	TrailWindow      time.Duration // trail length kept in memory, data time; 0 = 10m
-	TrailMinInterval time.Duration // minimum time between kept points on a straight, level leg; 0 = 5s
-	FlightGap        time.Duration // a flight stays open this long after its aircraft expires; 0 = 10m
-	Flights          FlightSink    // optional; receives flights, track points and samples
-	LastFlightID     int64         // flight IDs continue after this one
+	TrailWindow      time.Duration    // trail length kept in memory, data time; 0 = 10m
+	TrailMinInterval time.Duration    // minimum time between kept points on a straight, level leg; 0 = 5s
+	FlightGap        time.Duration    // a flight stays open this long after its aircraft expires; 0 = 10m
+	Flights          FlightSink       // optional; receives flights, track points and samples
+	LastFlightID     int64            // flight IDs continue after this one
+	Clock            func() time.Time // wall clock that ages entries between frames; time.Now when nil
 }
 
 // CoverageRecorder records accepted positions (altitude in ft and frame signal in dBFS, both may be nil) at
@@ -69,8 +70,7 @@ func (e *entry) addSignal(dbfs float64) float64 {
 // arrived. Live, that is the wall clock; for a fast replay it follows the capture's own timeline and keeps
 // running after the replay ends.
 type Tracker struct {
-	opt  Options
-	wall func() time.Time
+	opt Options
 
 	mu       sync.RWMutex
 	aircraft map[uint32]*entry
@@ -89,6 +89,9 @@ func New(opt Options) *Tracker {
 	if opt.Stats == nil {
 		opt.Stats = stats.New(time.Now())
 	}
+	if opt.Clock == nil {
+		opt.Clock = time.Now
+	}
 	if opt.TrailWindow <= 0 {
 		opt.TrailWindow = defaultTrailWindow
 	}
@@ -100,7 +103,6 @@ func New(opt Options) *Tracker {
 	}
 	return &Tracker{
 		opt:          opt,
-		wall:         time.Now,
 		aircraft:     map[uint32]*entry{},
 		known:        NewKnownAddresses(opt.KnownAddressTTL),
 		flights:      map[uint32]*flight{},
@@ -117,9 +119,9 @@ func (t *Tracker) Now() time.Time {
 
 func (t *Tracker) nowLocked() time.Time {
 	if t.lastData.IsZero() {
-		return t.wall()
+		return t.opt.Clock()
 	}
-	return t.lastData.Add(t.wall().Sub(t.lastWall))
+	return t.lastData.Add(t.opt.Clock().Sub(t.lastWall))
 }
 
 // Update applies one decoded message. It returns false when the message is dropped: an address/parity
@@ -131,7 +133,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	if m.Time.After(t.lastData) {
 		t.lastData = m.Time
 	}
-	t.lastWall = t.wall()
+	t.lastWall = t.opt.Clock()
 
 	if m.AddressParity {
 		if !t.known.Known(m.ICAO, m.Time) {
@@ -574,6 +576,9 @@ func (t *Tracker) Expire() int {
 	t.known.Expire(now)
 	return n
 }
+
+// Options returns the options the tracker was built with (defaults filled in).
+func (t *Tracker) Options() Options { return t.opt }
 
 // Snapshot returns copies of all aircraft heard within TTL, in no particular order.
 func (t *Tracker) Snapshot() []Aircraft {

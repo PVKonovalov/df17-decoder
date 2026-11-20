@@ -1,8 +1,10 @@
-import { useEffect, useReducer, type CSSProperties } from 'react'
+import { useEffect, useReducer, useRef, type CSSProperties } from 'react'
 import { useLiveData } from './api/live'
+import { PLAYBACK_SPEEDS } from './api/types'
 import { DetailPanel } from './components/DetailPanel'
 import { Header } from './components/Header'
 import { Splitter, useSplit } from './components/Splitter'
+import { Deck } from './deck/Deck'
 import { LiveMap } from './map/LiveMap'
 import { usePanel } from './map/prefs'
 import { initialState, reducer, type State } from './state/reducer'
@@ -16,29 +18,51 @@ function initFromUrl(s: State): State {
 
 export function App() {
   const [state, dispatch] = useReducer(reducer, initialState, initFromUrl)
-  useLiveData(dispatch)
+  const send = useLiveData(dispatch)
   const linkedIcao = state.selected ?? state.pendingSelect
   useEffect(() => {
     replaceUrl({ icao: linkedIcao })
   }, [linkedIcao])
+
+  // a moment link (?t=…&speed=…) seeks once the server reports playback; back in live, the link loses its moment
+  const pendingMoment = useRef(parseUrl(window.location.search))
+  const pb = state.playback
+  useEffect(() => {
+    const m = pendingMoment.current
+    if (pb === null || state.conn !== 'connected') {
+      return
+    }
+    if (m.t !== null && pb.mode === 'live') {
+      pendingMoment.current = { ...m, t: null }
+      send({ action: 'seek', t: m.t })
+      const speed = PLAYBACK_SPEEDS.find((s) => s === m.speed)
+      if (speed !== undefined) {
+        send({ action: 'speed', speed })
+      }
+    } else if (m.t === null && pb.mode === 'live') {
+      replaceUrl({ t: null, speed: null })
+    }
+  }, [pb, state.conn, send])
+  const moment = pb?.mode === 'playback' ? { t: pb.t, speed: pb.speed } : undefined
   const [split, setSplit] = useSplit()
   const [showTable, setShowTable] = usePanel('table')
   const [showLegend, setShowLegend] = usePanel('legend')
   const selected = state.selected === null ? undefined : state.aircraft.get(state.selected)
 
   return (
-    <div className="app">
+    <div className={moment ? 'app playback' : 'app'}>
       <Header
         state={state}
         panels={{ table: showTable, onTable: setShowTable, legend: showLegend, onLegend: setShowLegend }}
       />
+      <Deck state={state} send={send} dispatch={dispatch} />
       <main
         className={showTable ? 'main' : 'main map-only'}
         style={showTable ? ({ '--split': `${split}%` } as CSSProperties) : undefined}
       >
         <div className="map-pane">
           <LiveMap state={state} dispatch={dispatch} showLegend={showLegend} />
-          {selected && <DetailPanel aircraft={selected} dispatch={dispatch} />}
+          {selected && <DetailPanel aircraft={selected} dispatch={dispatch} moment={moment} />}
         </div>
         {showTable && (
           <>

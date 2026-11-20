@@ -18,8 +18,10 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
+	"github.com/PVKonovalov/df17-decoder/internal/playback"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
+	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/PVKonovalov/df17-decoder/internal/tracker"
 	"github.com/PVKonovalov/df17-decoder/internal/version"
 	"github.com/PVKonovalov/df17-decoder/web"
@@ -54,6 +56,8 @@ type Service struct {
 	Tracker    *tracker.Tracker
 	Coverage   *coverage.Coverage
 	History    *history.Store // nil when history is disabled
+	Tape       *tape.Recorder // nil when the tape is disabled
+	TapeData   *tape.Tape     // the recording read back; nil when the tape is disabled
 }
 
 func New(cfg config.Config, log *slog.Logger) (*Service, error) {
@@ -61,13 +65,20 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	src, err := source.New(scheme, addr, source.Options{
+	var src source.Source
+	if scheme == "tape" {
+		dir, from, speed, _ := tape.ParseURL(cfg.Source.URL)
+		src = &tape.Source{Tape: tape.Open(dir), From: from, Speed: speed}
+		if cfg.Tape.Enabled {
+			cfg.Tape.Enabled = false
+			log.Info("tape recording is off while the input is a tape", "source", cfg.Source.URL)
+		}
+	} else if src, err = source.New(scheme, addr, source.Options{
 		ReconnectMin: cfg.Source.ReconnectMin.D(),
 		ReconnectMax: cfg.Source.ReconnectMax.D(),
 		ReplaySpeed:  cfg.Source.ReplaySpeed,
 		Logger:       log,
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
@@ -106,6 +117,26 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		log.Info("history enabled", "file", histFile, "lastFlight", lastID)
 	}
 
+	var (
+		rec      *tape.Recorder
+		tapeData *tape.Tape
+	)
+	if cfg.Tape.Enabled {
+		tapeData = tape.Open(cfg.Tape.Dir)
+		if rec, err = tape.New(tape.Options{
+			Dir:           cfg.Tape.Dir,
+			Segment:       cfg.Tape.Segment.D(),
+			FlushInterval: cfg.Tape.FlushInterval.D(),
+			Retention:     cfg.Tape.Retention.D(),
+			MinFreeBytes:  uint64(cfg.Tape.MinFreeMB) << 20,
+			Logger:        log,
+		}); err != nil {
+			return nil, err
+		}
+		dir, _ := filepath.Abs(cfg.Tape.Dir)
+		log.Info("tape recording enabled", "dir", dir, "segment", cfg.Tape.Segment.D(), "retention", cfg.Tape.Retention.D())
+	}
+
 	st := stats.New(time.Now())
 	return &Service{
 		cfg:      cfg,
@@ -115,6 +146,8 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		Stats:    st,
 		Coverage: cov,
 		History:  hist,
+		Tape:     rec,
+		TapeData: tapeData,
 		Tracker: tracker.New(tracker.Options{
 			TTL:             cfg.Tracker.TTL.D(),
 			KnownAddressTTL: cfg.Tracker.KnownAddressTTL.D(),
@@ -134,6 +167,26 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 			LastFlightID:     lastID,
 		}),
 	}, nil
+}
+
+// playback returns the playback manager over the recorded tape, nil when the tape or playback is disabled.
+func (s *Service) playback() *playback.Manager {
+	if s.Tape == nil || s.cfg.Playback.MaxSessions == 0 {
+		return nil
+	}
+	return &playback.Manager{
+		Tape:        s.TapeData,
+		Tracker:     s.Tracker.Options(),
+		Decode:      s.opt,
+		MaxSessions: s.cfg.Playback.MaxSessions,
+		IdleTimeout: s.cfg.Playback.IdleTimeout.D(),
+		EndMargin:   s.cfg.API.StreamInterval.D(),
+		Bounds: func() (time.Time, time.Time) {
+			st := s.Tape.Stats()
+			return st.Oldest, st.Newest
+		},
+		Logger: s.log,
+	}
 }
 
 // SourceStats returns the source's live counters.
@@ -174,6 +227,9 @@ func (s *Service) Run(ctx context.Context) error {
 			Tracker:        s.Tracker,
 			Coverage:       s.Coverage,
 			History:        s.History,
+			Tape:           s.Tape,
+			TapeData:       s.TapeData,
+			Playback:       s.playback(),
 			Stats:          s.Stats,
 			Source:         s.SourceStats,
 			SourceURL:      s.cfg.Source.URL,
@@ -190,6 +246,12 @@ func (s *Service) Run(ctx context.Context) error {
 	defer stopHistory()
 	if s.History != nil {
 		hist.Go(func() { s.History.Run(histCtx) })
+	}
+	var rec sync.WaitGroup
+	recCtx, stopTape := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopTape()
+	if s.Tape != nil {
+		rec.Go(func() { s.Tape.Run(recCtx) })
 	}
 
 	var wg sync.WaitGroup
@@ -241,6 +303,8 @@ func (s *Service) Run(ctx context.Context) error {
 		s.log.Warn("api shutdown", "err", err)
 	}
 	wg.Wait()
+	stopTape()
+	rec.Wait()
 	if s.History != nil {
 		s.Tracker.CloseFlights()
 		stopHistory()
@@ -275,6 +339,9 @@ func (s *Service) Ingest(ctx context.Context) error {
 	}()
 
 	for f := range frames {
+		if s.Tape != nil {
+			s.Tape.Record(f)
+		}
 		s.handle(f)
 	}
 

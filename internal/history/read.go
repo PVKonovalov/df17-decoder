@@ -54,10 +54,12 @@ type State struct {
 	Sample   *SamplePoint        `json:"sample,omitempty"`
 }
 
-// FlightQuery selects flights overlapping [From, To]; ICAO "" matches every address.
+// FlightQuery selects flights overlapping [From, To]; ICAO "" matches every address. Text, when set, matches the
+// ICAO address exactly or the start of the callsign (case-insensitive).
 type FlightQuery struct {
 	From, To time.Time
 	ICAO     string
+	Text     string
 	Limit    int
 }
 
@@ -159,6 +161,10 @@ func (s *Store) Flights(ctx context.Context, q FlightQuery) ([]Flight, error) {
 	if q.ICAO != "" {
 		query += ` AND f.icao = ?`
 		args = append(args, strings.ToUpper(q.ICAO))
+	}
+	if t := strings.ToUpper(strings.TrimSpace(q.Text)); t != "" {
+		query += ` AND (f.icao = ? OR f.callsign LIKE ? ESCAPE '\')`
+		args = append(args, t, strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(t)+"%")
 	}
 	query += ` ORDER BY f.first_seen DESC, f.id DESC LIMIT ?`
 	args = append(args, q.Limit)

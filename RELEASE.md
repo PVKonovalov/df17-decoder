@@ -40,3 +40,8 @@
 - 2026-11-20: Optional SQLite flight history (history config, modernc.org/sqlite): non-blocking batched writer, schema v1 + migrations, crash recovery, retention, stats.
 - 2026-11-20: History read API: /api/history/flights, /flights/{id}, /at?t= (playback query); read-only connections; country derived from ICAO (schema v2).
 - 2026-11-20: Docs for trails and flight history (README: config, disk use, privacy; CLAUDE.md); systemd/Docker notes; *.db kept out of Docker builds.
+- 2026-11-20: Tape recorder: every received frame to hourly gzip segments (.part, flush, retention, disk guard), tape config (on by default), tape* stats.
+- 2026-11-20: Tape reader (seek, gaps), GET /api/tape/extent, tape:// source, tracker Options.Clock, playback pipeline with preroll; trail thinning by fixed time slots.
+- 2026-11-20: Playback sessions on /api/ws: play/pause/seek/speed/step/live control, playback and error messages, gap skip, auto-live at the end, playback config (maxSessions, idleTimeout).
+- 2026-11-20: Tape deck UI: REC indicator, transport (⏮ ⏪ ⏯ ⏩ LIVE), tape counter with date entry, timeline with zoom, PLAYBACK badge, keyboard, moment links (t, speed).
+- 2026-11-20: /api/history/timeline and flight search (q); deck density strip, emergency markers, find-a-flight seek; tape/playback docs; Docker workdir is the state dir.

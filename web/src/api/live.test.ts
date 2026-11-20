@@ -45,10 +45,13 @@ describe('toAction', () => {
     const windowMs = 600_000
     expect(toAction(JSON.stringify({ type: 'trails', data: { window: '10m0s', trails } }))).toEqual({ type: 'trails', windowMs, trails })
     expect(toAction(JSON.stringify({ type: 'trailPoints', data: trails }))).toEqual({ type: 'trailPoints', points: trails })
+    const playback = { mode: 'playback', t: '2026-11-20T10:00:00Z', speed: 4, playing: false, tapeStart: '2026-11-19T10:00:00Z' }
+    expect(toAction(JSON.stringify({ type: 'playback', data: playback }))).toEqual({ type: 'playback', playback })
+    expect(toAction('{"type":"error","data":{"message":"seek first"}}')).toEqual({ type: 'playbackError', message: 'seek first' })
   })
 
   it('ignores unknown, malformed and binary messages', () => {
-    for (const raw of ['{"type":"future","data":{}}', '{"type":"trails","data":{"window":"soon","trails":{}}}', '{"type":"trailPoints","data":[]}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', '{"type":"coverage","data":{"bucketDeg":2}}', '{"type":"coverageGrid","data":{"bucketDeg":2,"ringNm":5}}', 'not json', '42', null]) {
+    for (const raw of ['{"type":"future","data":{}}', '{"type":"playback","data":{"mode":"rewind","t":"x","speed":1,"playing":true}}', '{"type":"playback","data":{"mode":"live"}}', '{"type":"error","data":{}}', '{"type":"trails","data":{"window":"soon","trails":{}}}', '{"type":"trailPoints","data":[]}', '{"type":"aircraft","data":{}}', '{"type":"map","data":{}}', '{"type":"coverage","data":{"bucketDeg":2}}', '{"type":"coverageGrid","data":{"bucketDeg":2,"ringNm":5}}', 'not json', '42', null]) {
       expect(toAction(raw)).toBeNull()
     }
     expect(toAction(new ArrayBuffer(2))).toBeNull()
@@ -61,11 +64,16 @@ class FakeSocket {
   onmessage: ((e: { data: unknown }) => void) | null = null
   onclose: (() => void) | null = null
   closed = false
+  readyState = 0
+  sent: string[] = []
   constructor(readonly url: string) {
     FakeSocket.all.push(this)
   }
   close() {
     this.closed = true
+  }
+  send(data: string) {
+    this.sent.push(data)
   }
 }
 
@@ -80,9 +88,9 @@ describe('connectLive', () => {
 
   const start = () => {
     const actions: Action[] = []
-    const stop = connectLive('ws://x/api/ws', (a) => actions.push(a), FakeSocket as unknown as typeof WebSocket)
+    const live = connectLive('ws://x/api/ws', (a) => actions.push(a), FakeSocket as unknown as typeof WebSocket)
     const conns = () => actions.filter((a) => a.type === 'connection').map((a) => a.conn)
-    return { actions, stop, conns, sock: (i: number) => FakeSocket.all[i] as FakeSocket }
+    return { actions, stop: live.stop, send: live.send, conns, sock: (i: number) => FakeSocket.all[i] as FakeSocket }
   }
 
   it('dispatches messages and connection state', () => {
@@ -110,6 +118,14 @@ describe('connectLive', () => {
     expect(conns().at(-1)).toBe('reconnecting')
     vi.advanceTimersByTime(reconnectDelay(0))
     expect(FakeSocket.all).toHaveLength(DOWN_AFTER + 2)
+  })
+
+  it('sends playback commands only while open', () => {
+    const { send, sock } = start()
+    expect(send({ action: 'pause' })).toBe(false)
+    sock(0).readyState = 1
+    expect(send({ action: 'step', seconds: -10 })).toBe(true)
+    expect(sock(0).sent).toEqual(['{"type":"playback","data":{"action":"step","seconds":-10}}'])
   })
 
   it('stops: closes the socket and does not reconnect', () => {

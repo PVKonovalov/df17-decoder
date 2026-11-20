@@ -27,8 +27,8 @@ func beastPayloadLen(typ byte) int {
 	return 0
 }
 
-// beastRSSI converts a Beast signal byte to dBFS; 0 gives nil.
-func beastRSSI(sig byte) *float64 {
+// SignalRSSI converts a Beast signal byte to dBFS; 0 gives nil.
+func SignalRSSI(sig byte) *float64 {
 	if sig == 0 {
 		return nil
 	}
@@ -133,7 +133,8 @@ func readBeast(ctx context.Context, r io.Reader, out chan<- Frame, stats *Stats,
 			Data:      append([]byte(nil), buf[beastHeaderLen:]...),
 			Time:      frameTime,
 			Timestamp: ts,
-			RSSI:      beastRSSI(buf[6]),
+			Signal:    buf[6],
+			RSSI:      SignalRSSI(buf[6]),
 		}
 		select {
 		case out <- f:

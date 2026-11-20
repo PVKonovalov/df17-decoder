@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type ReactNode } from 'react'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
+import { urlWith } from '../state/url'
 import { fmtVerticalRate, isEmergency } from '../table/rows'
 
 /** trackerUrl links the aircraft on an external tracker by ICAO hex. */
@@ -102,8 +103,11 @@ export async function copyText(text: string): Promise<boolean> {
 
 const COPY_FEEDBACK_MS = 1500
 
-/** CopyLinkButton copies the page URL, which carries the selection and table filters, and briefly confirms. */
-function CopyLinkButton() {
+/**
+ * CopyLinkButton copies the page URL, which carries the selection and table filters, plus the playback moment when
+ * one is given, and briefly confirms.
+ */
+function CopyLinkButton({ moment }: { moment: Moment | undefined }) {
   const [result, setResult] = useState<'copied' | 'failed' | null>(null)
   useEffect(() => {
     if (result === null) {
@@ -120,9 +124,11 @@ function CopyLinkButton() {
     <button
       type="button"
       className="detail-copy"
-      title="Copy a link that opens this aircraft with the current table filters"
+      title={`Copy a link that opens this aircraft${moment ? ' at this moment' : ''} with the current table filters`}
       onClick={() => {
-        void copyText(window.location.href).then((ok) => {
+        const { origin, pathname, search, hash } = window.location
+        const href = moment ? `${origin}${pathname}${urlWith(search, moment)}${hash}` : window.location.href
+        void copyText(href).then((ok) => {
           setResult(ok ? 'copied' : 'failed')
         })
       }}
@@ -132,13 +138,27 @@ function CopyLinkButton() {
   )
 }
 
-/** DetailPanel shows all known fields of the selected aircraft. */
-export function DetailPanel({ aircraft, dispatch }: { aircraft: Aircraft; dispatch: Dispatch<Action> }) {
+/** Moment is a playback position for links. */
+export interface Moment {
+  t: string
+  speed: number
+}
+
+/** DetailPanel shows all known fields of the selected aircraft; moment, in playback, goes into "Copy link". */
+export function DetailPanel({
+  aircraft,
+  dispatch,
+  moment,
+}: {
+  aircraft: Aircraft
+  dispatch: Dispatch<Action>
+  moment?: Moment | undefined
+}) {
   return (
     <aside className={`detail${isEmergency(aircraft) ? ' emergency' : ''}`} aria-label="Aircraft details">
       <header className="detail-head">
         <h2>{aircraft.callsign ?? aircraft.icao}</h2>
-        <CopyLinkButton />
+        <CopyLinkButton moment={moment} />
         <button
           type="button"
           className="detail-close"

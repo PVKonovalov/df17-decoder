@@ -7,12 +7,16 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
+	"github.com/PVKonovalov/df17-decoder/internal/playback"
+	"github.com/PVKonovalov/df17-decoder/internal/source"
+	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"github.com/gorilla/websocket"
 )
 
@@ -223,5 +227,187 @@ func TestWS_ClientCloseEndsHandler(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler still running after client closed")
+	}
+}
+
+// newPlaybackFixture adds playback over a tape of undecodable frames every 10 s from 10 to 1 minutes ago.
+func newPlaybackFixture(t *testing.T, maxSessions int) (*httptest.Server, time.Time) {
+	t.Helper()
+	f := newFixture(t)
+	dir := filepath.Join(t.TempDir(), "tape")
+	rec, err := tape.New(tape.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
+	for i := range 55 {
+		rec.Record(source.Frame{Data: make([]byte, 7), Time: start.Add(time.Duration(i) * 10 * time.Second)})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec.Run(ctx)
+	st := rec.Stats()
+	f.handler = New(Deps{
+		Receiver: Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
+		Tracker:  f.tracker, Stats: f.stats, Source: func() source.StatsSnapshot { return source.StatsSnapshot{} },
+		StreamInterval: 50 * time.Millisecond,
+		Playback: &playback.Manager{
+			Tape: tape.Open(dir), Tracker: f.tracker.Options(), MaxSessions: maxSessions, EndMargin: time.Second,
+			Bounds: func() (time.Time, time.Time) { return st.Oldest, st.Newest },
+		},
+	})
+	srv := httptest.NewServer(f.handler)
+	t.Cleanup(srv.Close)
+	return srv, start
+}
+
+func dialWS(t *testing.T, srv *httptest.Server) *websocket.Conn {
+	t.Helper()
+	c, _, err := websocket.DefaultDialer.Dial(wsURL(srv), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
+}
+
+func sendControl(t *testing.T, c *websocket.Conn, raw string) {
+	t.Helper()
+	if err := c.WriteMessage(websocket.TextMessage, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// until reads messages until one of type typ arrives.
+func until(t *testing.T, c *websocket.Conn, typ string) wsIn {
+	t.Helper()
+	for range 200 {
+		if m := readWS(t, c); m.Type == typ {
+			return m
+		}
+	}
+	t.Fatalf("no %q message", typ)
+	return wsIn{}
+}
+
+func playbackOf(t *testing.T, m wsIn) wsPlayback {
+	t.Helper()
+	var p wsPlayback
+	if err := json.Unmarshal(m.Data, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestWS_PlaybackSwitchesTheFeed(t *testing.T) {
+	srv, start := newPlaybackFixture(t, 2)
+	c := dialWS(t, srv)
+	if p := playbackOf(t, until(t, c, "playback")); p.Mode != "live" || p.TapeStart == nil || !p.TapeStart.Equal(start) {
+		t.Fatalf("live status %+v", p)
+	}
+
+	at := start.Add(5 * time.Minute).UTC().Format(time.RFC3339)
+	sendControl(t, c, `{"type":"playback","data":{"action":"seek","t":"`+at+`"}}`)
+	m := until(t, c, "trails")
+	if string(m.Data) != `{"window":"10m0s","trails":{}}` {
+		t.Errorf("playback trails %s", m.Data)
+	}
+	// right after the full trails: deltas, then the session's aircraft, live stats and the status
+	for _, want := range []string{"trailPoints", "aircraft", "stats", "playback"} {
+		m = readWS(t, c)
+		if m.Type != want {
+			t.Fatalf("got %s, want %s", m.Type, want)
+		}
+		switch want {
+		case "aircraft":
+			if string(m.Data) != "[]" {
+				t.Errorf("playback aircraft %s", m.Data)
+			}
+		case "stats":
+			var st statsResponse
+			if err := json.Unmarshal(m.Data, &st); err != nil || st.Aircraft != 3 {
+				t.Errorf("stats must stay live: %s", m.Data)
+			}
+		case "playback":
+			if p := playbackOf(t, m); p.Mode != "playback" || !p.Playing || p.Speed != 1 || p.T.Before(start.Add(5*time.Minute)) {
+				t.Errorf("status %+v", p)
+			}
+		}
+	}
+	if m := until(t, c, "trailPoints"); string(m.Data) != "{}" {
+		t.Errorf("deltas after a seek %s", m.Data)
+	}
+
+	sendControl(t, c, `{"type":"playback","data":{"action":"pause"}}`)
+	for p := playbackOf(t, until(t, c, "playback")); p.Playing; p = playbackOf(t, until(t, c, "playback")) {
+	}
+	sendControl(t, c, `{"type":"playback","data":{"action":"speed","speed":16}}`)
+	for p := playbackOf(t, until(t, c, "playback")); p.Speed != 16; p = playbackOf(t, until(t, c, "playback")) {
+	}
+
+	sendControl(t, c, `{"type":"playback","data":{"action":"live"}}`)
+	if m := until(t, c, "trails"); !strings.Contains(string(m.Data), `"738001"`) {
+		t.Errorf("live trails after live %s", m.Data)
+	}
+	if m := until(t, c, "aircraft"); !strings.Contains(string(m.Data), `"738001"`) {
+		t.Errorf("live aircraft after live %.100s", m.Data)
+	}
+	if p := playbackOf(t, until(t, c, "playback")); p.Mode != "live" {
+		t.Errorf("status after live %+v", p)
+	}
+}
+
+func TestWS_PlaybackErrors(t *testing.T) {
+	srv, start := newPlaybackFixture(t, 1)
+	c := dialWS(t, srv)
+	until(t, c, "playback")
+	for _, tc := range []struct{ msg, want string }{
+		{`not json`, "invalid message"},
+		{`{"type":"nope"}`, "unknown message type"},
+		{`{"type":"playback","data":{"action":"rewind"}}`, "unknown playback action"},
+		{`{"type":"playback","data":{"action":"pause"}}`, "not in playback"},
+		{`{"type":"playback","data":{"action":"seek"}}`, "seek needs t"},
+		{`{"type":"playback","data":{"action":"speed","speed":3}}`, "speed must be one of"},
+		{`{"type":"playback","data":{"action":"step","seconds":0}}`, "step needs seconds"},
+		{`{"type":"playback","data":{"action":"seek","t":"2001-01-01T00:00:00Z"}}`, "outside the tape"},
+	} {
+		sendControl(t, c, tc.msg)
+		var e wsError
+		if err := json.Unmarshal(until(t, c, "error").Data, &e); err != nil || !strings.Contains(e.Message, tc.want) {
+			t.Errorf("%s: error %q, want %q", tc.msg, e.Message, tc.want)
+		}
+	}
+
+	// the connection survives, and a second one is refused while the first holds the only session
+	sendControl(t, c, `{"type":"playback","data":{"action":"step","seconds":-120}}`)
+	p := playbackOf(t, until(t, c, "playback"))
+	for p.Mode == "live" { // updates sent before the command was handled
+		p = playbackOf(t, until(t, c, "playback"))
+	}
+	if p.Mode != "playback" || p.T.After(time.Now().Add(-110*time.Second)) || p.T.Before(start) {
+		t.Errorf("step from live %+v", p)
+	}
+	c2 := dialWS(t, srv)
+	until(t, c2, "playback")
+	sendControl(t, c2, `{"type":"playback","data":{"action":"seek","t":"`+start.Add(time.Minute).UTC().Format(time.RFC3339)+`"}}`)
+	var e wsError
+	if err := json.Unmarshal(until(t, c2, "error").Data, &e); err != nil || !strings.Contains(e.Message, "too many playback sessions") {
+		t.Errorf("second session: %q", e.Message)
+	}
+}
+
+func TestWS_PlaybackReturnsToLiveAtTheEnd(t *testing.T) {
+	srv, _ := newPlaybackFixture(t, 1)
+	c := dialWS(t, srv)
+	until(t, c, "playback")
+	sendControl(t, c, `{"type":"playback","data":{"action":"step","seconds":-3}}`)
+	for playbackOf(t, until(t, c, "playback")).Mode != "playback" {
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	sendControl(t, c, `{"type":"playback","data":{"action":"speed","speed":4}}`) // at 1× it stays 3 s behind
+	for playbackOf(t, until(t, c, "playback")).Mode != "live" {
+		if time.Now().After(deadline) {
+			t.Fatal("playback did not return to live at the end of the tape")
+		}
 	}
 }

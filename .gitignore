@@ -60,3 +60,7 @@ go.work.sum
 *.db
 *.db-wal
 *.db-shm
+
+# Raw frame tape (tape.dir); reveals the receiver position
+/tape/
+*.tape.gz*

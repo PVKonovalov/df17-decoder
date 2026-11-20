@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,8 +18,15 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/history"
 )
 
-func captureConfig() config.Config {
+// testConfig is the default config without the tape, so tests don't record into the package directory.
+func testConfig() config.Config {
 	cfg := config.Default()
+	cfg.Tape.Enabled = false
+	return cfg
+}
+
+func captureConfig() config.Config {
+	cfg := testConfig()
 	cfg.Source.URL = "file://../../testdata/capture.txt"
 	cfg.Source.ReplaySpeed = 0
 	cfg.Decoder.FixSingleBitErrors = true
@@ -108,7 +116,7 @@ func writeCapture(t *testing.T, lines ...string) string {
 }
 
 func TestIngest_EmergencyFromTC28(t *testing.T) {
-	cfg := config.Default()
+	cfg := testConfig()
 	cfg.Log.Level = "debug"
 	cfg.Source.URL = writeCapture(t,
 		"*8D738062E1092D000000000ABE6D;", // TC28 squawk 1346, no emergency: not logged as emergency
@@ -133,7 +141,7 @@ func TestIngest_EmergencyFromTC28(t *testing.T) {
 }
 
 func TestIngest_SquawkEmergencyFromSurveillance(t *testing.T) {
-	cfg := config.Default()
+	cfg := testConfig()
 	cfg.Source.URL = writeCapture(t,
 		"*5D738ABCF3536C;", // DF11 makes 738ABC known
 		"*2800011C5D5770;", // DF5 squawk 0243
@@ -153,7 +161,7 @@ func TestIngest_SquawkEmergencyFromSurveillance(t *testing.T) {
 }
 
 func TestIngest_MissingFile(t *testing.T) {
-	cfg := config.Default()
+	cfg := testConfig()
 	cfg.Source.URL = "file://does/not/exist.txt"
 	svc, _ := newService(t, cfg)
 	if err := svc.Ingest(t.Context()); err == nil {
@@ -338,8 +346,10 @@ func TestRun_WritesHistory(t *testing.T) {
 	if st.Frames != 16 || st.Messages != 13 || st.Positions != 2 || st.AddressParityDrops != 1 {
 		t.Errorf("decoder counts changed: frames=%d messages=%d positions=%d apDrops=%d", st.Frames, st.Messages, st.Positions, st.AddressParityDrops)
 	}
-	// 40621D's two fixes are 3 s apart at the same altitude: thinning keeps one
-	if h := svc.History.Stats(); h.PointsWritten != 1 || h.Dropped != 0 || h.WriteErrors != 0 || h.FlightsOpen != 0 {
+	// 40621D's two fixes are 3 s apart at the same altitude: thinning keeps both only when they fall in different
+	// 5 s slots, which depends on the wall time the replay is anchored to
+	h := svc.History.Stats()
+	if h.PointsWritten < 1 || h.PointsWritten > 2 || h.Dropped != 0 || h.WriteErrors != 0 || h.FlightsOpen != 0 {
 		t.Errorf("history stats = %+v", h)
 	}
 
@@ -353,7 +363,7 @@ func TestRun_WritesHistory(t *testing.T) {
 		(SELECT count(*) FROM samples) FROM flights`).Scan(&flights, &closed, &adsb, &points, &samples); err != nil {
 		t.Fatal(err)
 	}
-	if flights != 5 || closed != 5 || adsb != 4 || points != 1 || samples != 1 {
+	if flights != 5 || closed != 5 || adsb != 4 || uint64(points) != h.PointsWritten || samples != 1 {
 		t.Errorf("flights=%d closed=%d adsb=%d points=%d samples=%d", flights, closed, adsb, points, samples)
 	}
 	var alt int
@@ -366,5 +376,38 @@ func TestRun_WritesHistory(t *testing.T) {
 	}
 	if err := store.DB().QueryRow(`SELECT squawk FROM flights WHERE icao = '738ABC' AND adsb = 0`).Scan(&squawk); err != nil || squawk != "0243" {
 		t.Errorf("738ABC squawk %q (%v)", squawk, err)
+	}
+}
+
+func TestRun_RecordsTape(t *testing.T) {
+	cfg := captureConfig()
+	cfg.Tape.Enabled = true
+	cfg.Tape.Dir = filepath.Join(t.TempDir(), "tape")
+	svc, _ := newService(t, cfg)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for svc.Stats.Messages.Load() < 13 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// every frame is recorded before decoding, including the CRC failure and the rejected ones
+	if st := svc.Tape.Stats(); st.FramesWritten != 16 || st.Dropped != 0 || st.WriteErrors != 0 || st.Bytes == 0 || st.Recording {
+		t.Errorf("tape stats = %+v", st)
+	}
+	var segs []string
+	_ = filepath.WalkDir(cfg.Tape.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			segs = append(segs, p)
+		}
+		return nil
+	})
+	if len(segs) == 0 || strings.HasSuffix(segs[0], ".part") {
+		t.Errorf("segments %v", segs)
 	}
 }

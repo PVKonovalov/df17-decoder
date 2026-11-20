@@ -156,3 +156,38 @@ describe('connection, receiver, stats', () => {
     expect(reducer(s, { type: 'connection', conn: 'connected' })).toBe(s)
   })
 })
+
+describe('playback', () => {
+  const live = { mode: 'live', t: iso(T0), speed: 1, playing: true } as const
+
+  it('keeps the latest status and error', () => {
+    let s = reducer({ ...initialState, conn: 'connected' }, { type: 'playback', playback: live })
+    expect(s.playback).toEqual(live)
+    const paused = { ...live, mode: 'playback', playing: false } as const
+    s = reducer(s, { type: 'playback', playback: paused })
+    expect(s.playback).toEqual(paused)
+    s = reducer(s, { type: 'playbackError', message: 'too many playback sessions' })
+    expect(s.playbackError).toBe('too many playback sessions')
+  })
+
+  it('forgets the status when the connection drops', () => {
+    let s = reducer({ ...initialState, conn: 'connected' }, { type: 'playback', playback: live })
+    s = reducer(s, { type: 'connection', conn: 'reconnecting' })
+    expect(s.playback).toBeNull()
+  })
+})
+
+describe('selectAfterSeek', () => {
+  it('waits for the trails of the seek before selecting', () => {
+    let s = reducer(initialState, { type: 'snapshot', aircraft: [ac('4840D6')] })
+    s = reducer(s, { type: 'selectAfterSeek', icao: '4840D6' })
+    s = reducer(s, { type: 'snapshot', aircraft: [ac('4840D6')] }) // live, before the seek took effect
+    expect(s.selected).toBeNull()
+    s = reducer(s, { type: 'trails', windowMs: DEFAULT_TRAIL_WINDOW_MS, trails: {} })
+    s = reducer(s, { type: 'snapshot', aircraft: [] })
+    expect(s.pendingSelect).toBe('4840D6')
+    s = reducer(s, { type: 'snapshot', aircraft: [ac('4840D6', { lat: 1, lon: 2 })] })
+    expect(s.selected).toBe('4840D6')
+    expect(s.panSeq).toBe(1)
+  })
+})

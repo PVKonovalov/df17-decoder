@@ -162,6 +162,17 @@ export interface Stats {
   historyDropped?: number // events dropped because the write queue was full
   historyWriteErrors?: number
   historyLastFlush?: string // RFC 3339
+  // raw frame tape, present only when tape.enabled
+  tapeRecording?: boolean
+  tapePaused?: boolean // free disk space below tape.minFreeMB
+  tapeOldest?: string // RFC 3339
+  tapeNewest?: string // RFC 3339
+  tapeBytes?: number
+  tapeFramesWritten?: number
+  tapeDropped?: number
+  tapeWriteErrors?: number
+  tapeLastFlush?: string // RFC 3339
+  playbackSessions?: number // active tape playback sessions, when playback is enabled
 }
 
 /** coverage.Point: the furthest position seen in one bearing bucket */
@@ -195,6 +206,58 @@ export interface CoverageGrid {
   bands: { name: string; cells: CoverageCell[] }[]
 }
 
+/** api.wsPlayback: the "playback" message, the tape counter's state (sent only when playback is enabled) */
+export interface Playback {
+  mode: 'live' | 'playback'
+  t: string // RFC 3339 UTC: the playback position, or now when live
+  speed: number
+  playing: boolean
+  gapSkipped?: { from: string; to: string } // once, in the update after a skipped silence
+  tapeStart?: string // RFC 3339
+  tapeEnd?: string // RFC 3339
+}
+
+/** history.Flight as served by /api/history/flights (the fields the UI uses) */
+export interface HistoryFlight {
+  id: number
+  icao: string
+  callsign?: string
+  squawk?: string
+  country?: string
+  adsb: boolean
+  firstSeen: string // RFC 3339, data time
+  lastSeen: string
+  closed: boolean
+  maxAlt?: number
+}
+
+/** history.Event: an emergency squawk on the timeline */
+export interface TimelineEvent {
+  t: string // RFC 3339
+  flightId: number
+  icao: string
+  callsign?: string
+  squawk: string
+}
+
+/** history.Timeline: GET /api/history/timeline, flights active per bucket as [ADS-B, Mode-S only] */
+export interface Timeline {
+  from: string // RFC 3339, the first bucket's start
+  bucket: string // Go duration
+  buckets: [number, number][]
+  events: TimelineEvent[]
+}
+
+/** Allowed playback speeds (playback.Speeds) */
+export const PLAYBACK_SPEEDS = [1, 2, 4, 8, 16, 60] as const
+
+/** api.wsControl: the data of a client {type: 'playback'} message */
+export type PlaybackControl =
+  | { action: 'play' | 'pause' | 'live' }
+  | { action: 'seek'; t: string }
+  | { action: 'speed'; speed: (typeof PLAYBACK_SPEEDS)[number] }
+  | { action: 'step'; seconds: number }
+
 /** api.wsMessage as received on /api/ws */
 export type WsMessage =
   | { type: 'receiver'; data: Receiver }
@@ -205,3 +268,5 @@ export type WsMessage =
   | { type: 'trailPoints'; data: Record<string, TrackPoint[]> }
   | { type: 'aircraft'; data: Aircraft[] }
   | { type: 'stats'; data: Stats }
+  | { type: 'playback'; data: Playback }
+  | { type: 'error'; data: { message: string } }

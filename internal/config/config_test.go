@@ -82,6 +82,8 @@ func TestLoad_Errors(t *testing.T) {
 		{"reconnect max below min", "source:\n  reconnectMin: 10s\n  reconnectMax: 1s\n", []string{"source.reconnectMax"}},
 		{"bad scheme", "source:\n  url: http://a:1\n", []string{"scheme must be"}},
 		{"tcp without port", "source:\n  url: tcp://localhost\n", []string{"host:port"}},
+		{"negative playback sessions", "playback:\n  maxSessions: -1\n", []string{"playback.maxSessions"}},
+		{"tape with a bad start", "source:\n  url: tape://tape?from=noon\n", []string{"source.url", "RFC 3339"}},
 		{"bad log level", "log:\n  level: verbose\n", []string{"log.level"}},
 		{"all errors reported", "receiver:\n  lat: 100\n  lon: 200\n", []string{"receiver.lat", "receiver.lon"}},
 		{"tile url not http", "map:\n  tileUrl: ftp://t/{z}/{x}/{y}.png\n", []string{"map.tileUrl must be an http(s) URL"}},
@@ -91,6 +93,10 @@ func TestLoad_Errors(t *testing.T) {
 		{"history dir missing", "history:\n  enabled: true\n  file: /no/such/dir/history.db\n", []string{"history.file", "/no/such/dir"}},
 		{"history without file", "history:\n  enabled: true\n  file: \"\"\n", []string{"history.file must be set"}},
 		{"history durations", "history:\n  flushInterval: 0s\n  flightGap: 0s\n  retention: -1h\n", []string{"history.flushInterval", "history.flightGap", "history.retention"}},
+		{"tape segment", "tape:\n  segment: 7m\n", []string{"tape.segment must divide a day"}},
+		{"tape flush interval", "tape:\n  segment: 10m\n  flushInterval: 10m\n", []string{"tape.flushInterval"}},
+		{"tape dir missing", "tape:\n  dir: /no/such/dir/tape\n", []string{"tape.dir", "/no/such/dir"}},
+		{"tape values", "tape:\n  retention: -1h\n  minFreeMB: -1\n", []string{"tape.retention", "tape.minFreeMB"}},
 		{"trails durations", "trails:\n  window: 0s\n  minInterval: 0s\n", []string{"trails.window", "trails.minInterval"}},
 	}
 	for _, tt := range tests {
@@ -165,6 +171,8 @@ func TestEndpoint(t *testing.T) {
 		{"beast://10.0.0.5:30005", "beast", "10.0.0.5:30005"},
 		{"file://testdata/capture.txt", "file", "testdata/capture.txt"},
 		{"file:///abs/capture.txt", "file", "/abs/capture.txt"},
+		{"tape://tape", "tape", "tape"},
+		{"tape:///var/lib/df17-decoder/tape?from=2026-11-20T10:00:00Z&speed=8", "tape", "/var/lib/df17-decoder/tape"},
 	}
 	for _, tt := range tests {
 		scheme, addr, err := Source{URL: tt.url}.Endpoint()

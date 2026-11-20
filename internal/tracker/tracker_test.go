@@ -31,14 +31,14 @@ func (w *fakeWall) now() time.Time { return w.t }
 func newTestTracker(t *testing.T) (*Tracker, *fakeWall, *stats.Stats) {
 	t.Helper()
 	st := stats.New(t0)
+	w := &fakeWall{t: t0}
 	tr := New(Options{
 		TTL:             60 * time.Second,
 		KnownAddressTTL: 60 * time.Second,
 		Resolver:        resolver(52.0, 4.4),
 		Stats:           st,
+		Clock:           w.now,
 	})
-	w := &fakeWall{t: t0}
-	tr.wall = w.now
 	return tr, w, st
 }
 
@@ -173,7 +173,7 @@ func TestTracker_SnapshotIsACopy(t *testing.T) {
 
 func TestTracker_ConcurrentReaders(t *testing.T) {
 	tr, _, _ := newTestTracker(t)
-	tr.wall = time.Now // the fake wall is not safe for concurrent use and not needed here
+	tr.opt.Clock = time.Now // the fake wall is not safe for concurrent use and not needed here
 	frames := []string{frameKLMIdent, frameVelocity1, frameVelocity3, frameDF11, frameDF5, frameDF4, frameDF4_KLM}
 
 	var wg sync.WaitGroup

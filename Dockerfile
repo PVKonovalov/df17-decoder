@@ -27,9 +27,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/df17-decoder /usr/local/bin/df17-decoder
-# Writable by nonroot, for coverage.file: /var/lib/df17-decoder/coverage.json and history.file:
-# /var/lib/df17-decoder/history.db (mount a volume to keep them).
+# The state directory, writable by nonroot and the working directory (as under systemd), so relative paths land
+# there: tape.dir (tape), history.file (history.db), coverage.file. Mount a volume to keep them.
 COPY --from=build --chown=nonroot:nonroot /out/state /var/lib/df17-decoder
+WORKDIR /var/lib/df17-decoder
 EXPOSE 8080
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/df17-decoder"]
