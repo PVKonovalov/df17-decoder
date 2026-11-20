@@ -7,7 +7,8 @@ import {
 } from '@tanstack/react-table'
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch } from 'react'
 import type { Aircraft } from '../api/types'
-import { aircraftAltitude, dataNow } from '../map/style'
+import { AircraftIcon } from '../map/AircraftIcon'
+import { aircraftAltitude, dataNow, type ColorMode } from '../map/style'
 import type { Action } from '../state/reducer'
 import { parseUrl, replaceUrl } from '../state/url'
 import { ageSeconds, fmtAgo, fmtVerticalRate, isEmergency, newAgeMs, visibleRows, type ColumnId, type Filter } from './rows'
@@ -17,6 +18,13 @@ const helper = createColumnHelper<typeof features, Aircraft>()
 
 /** Data-time "now" in ms, ticking every second, for the last-seen column. */
 const NowContext = createContext(0)
+
+/** The map's marker color mode, for the icon column. */
+const ColorModeContext = createContext<ColorMode>('altitude')
+
+function IconCell({ a }: { a: Aircraft }) {
+  return <AircraftIcon a={a} mode={useContext(ColorModeContext)} />
+}
 
 const num = (v: number | undefined, digits = 0) => (v === undefined ? '' : v.toFixed(digits))
 
@@ -35,6 +43,7 @@ function IcaoCell({ a }: { a: Aircraft }) {
 }
 
 const allColumns = helper.columns([
+  helper.display({ id: 'icon', header: '', cell: ({ row }) => <IconCell a={row.original} /> }),
   helper.accessor('icao', { id: 'icao', header: 'ICAO', cell: ({ row }) => <IcaoCell a={row.original} /> }),
   helper.accessor('callsign', { id: 'callsign', header: 'Callsign', cell: ({ row }) => row.original.callsign ?? '' }),
   helper.accessor('squawk', { id: 'squawk', header: 'Squawk', cell: ({ row }) => row.original.squawk ?? '' }),
@@ -63,7 +72,7 @@ const allColumns = helper.columns([
 ])
 const columnsWithoutRssi = allColumns.filter((c) => c.id !== 'rssi')
 
-const TEXT_COLUMNS = new Set<string>(['icao', 'callsign', 'squawk', 'country'])
+const TEXT_COLUMNS = new Set<string>(['icon', 'icao', 'callsign', 'squawk', 'country'])
 
 /**
  * useDataNow returns the newest data time in the table plus the wall time since that snapshot. Snapshots
@@ -93,13 +102,14 @@ interface Props {
   aircraft: ReadonlyMap<string, Aircraft>
   selected: string | null
   dispatch: Dispatch<Action>
+  colorMode?: ColorMode // the map's marker colors, for the icons
 }
 
 /**
  * AircraftTable lists all aircraft, including Mode-S-only ones, with sorting, a text filter and a
  * positions-only toggle. Emergencies are pinned on top. Clicking a row selects it and pans the map.
  */
-export function AircraftTable({ aircraft, selected, dispatch }: Props) {
+export function AircraftTable({ aircraft, selected, dispatch, colorMode = 'altitude' }: Props) {
   const [initial] = useState(() => parseUrl(window.location.search))
   const [filter, setFilter] = useState<Filter>(initial.filter)
   const [sorting, setSorting] = useState<SortingState>([initial.sort])
@@ -159,6 +169,7 @@ export function AircraftTable({ aircraft, selected, dispatch }: Props) {
         <span className="muted">{rows.length} shown</span>
       </div>
       <div className="table-scroll">
+        <ColorModeContext value={colorMode}>
         <NowContext value={now}>
           <table className="ac-table">
             <thead>
@@ -216,6 +227,7 @@ export function AircraftTable({ aircraft, selected, dispatch }: Props) {
             </tbody>
           </table>
         </NowContext>
+        </ColorModeContext>
       </div>
     </section>
   )

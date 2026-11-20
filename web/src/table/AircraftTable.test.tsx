@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
+import { markerColor } from '../map/style'
 import { AircraftTable } from './AircraftTable'
 
 const ac = (icao: string, extra: Partial<Aircraft> = {}): Aircraft => ({
@@ -44,6 +45,22 @@ function setup(selected: string | null = null) {
   render(<AircraftTable aircraft={fleet} selected={selected} dispatch={dispatch} />)
   return dispatch
 }
+
+describe('AircraftTable icons', () => {
+  it('shows each aircraft with its map icon in its marker color', () => {
+    const a = ac('738020', { lat: 25, lon: 23, altBaro: 30000, category: 'A5', track: 45, rssi: -10 })
+    render(<AircraftTable aircraft={new Map([[a.icao, a]])} selected={null} dispatch={vi.fn()} colorMode="signal" />)
+    const icon = screen.getByTitle('heavy (> 136 t)')
+    const css = (c: string) => {
+      const el = document.createElement('i')
+      el.style.color = c
+      return el.style.color
+    }
+    expect(icon.style.color).toBe(css(markerColor(a, 'signal')))
+    expect(icon.style.transform).toBe('rotate(45deg)')
+    expect(icon.innerHTML).toContain('width="23"')
+  })
+})
 
 describe('AircraftTable', () => {
   it('lists all aircraft by distance with the emergency pinned and Mode-S-only rows marked', () => {

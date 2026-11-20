@@ -389,9 +389,14 @@ there's nothing else to deploy.
   receiver position changes. Labels show callsign and altitude
   in hundreds of feet, or "GND" for aircraft on the ground, which are drawn in a neutral color. Trails come
   from the server and cover the last `trails.window` (10 minutes), also in a window opened later. Aircraft whose position is older than 30 s fade out.
+  The **icon** follows the ADS-B emitter category: heavy (A5, drawn larger), large (A3/A4), small (A2), light
+  and ultralight (A1/B4), high performance (A6), helicopter (A7), glider (B1), balloon (B2, not turned), UAV (B6)
+  and ground vehicles (C1/C2); Mode-S-only aircraft and other categories keep the generic icon. The legend lists
+  the icons currently on the map, and the detail panel names the category, e.g. "A3 (large)".
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
   unless you use your own tile server (see below).
-- **Table:** every aircraft, including Mode-S-only ones (marked "no pos"). Every column sorts, with unknown
+- **Table:** every aircraft, including Mode-S-only ones (marked "no pos"), with its map icon in the same color
+  (altitude or signal, as chosen in the legend) and turned to its track. Every column sorts, with unknown
   values last. Emergencies (7500/7600/7700 or an ADS-B emergency state) are red and pinned to the top.
   Filter by callsign, ICAO or squawk, or show only aircraft with a position.
 - **New aircraft:** rows of aircraft first seen in the last 30 s are highlighted in amber, fading out, and
@@ -483,7 +488,10 @@ writes Beast (`-format beast`), with a signal level that falls with distance, so
 default is AVR text. By default 40% of the aircraft arrive during the replay, with airliners entering at the edge
 of coverage, so new rows keep appearing. Another 30% stop transmitting early and then expire. About 15% are
 Mode-S-only (half of them also answer Comm-B with BDS 4,0/5,0/6,0), one squawks 7700, and 6 more taxi at an
-airfield 6 nm north-east of the receiver (surface positions, "GND" on the map). Flags such as `-n`, `-taxiing`,
+airfield 6 nm north-east of the receiver (surface positions, "GND" on the map), one in three of them a service
+vehicle (C2). ADS-B aircraft get a mix of emitter categories (mostly large, then heavy, small, light, some
+helicopters, fast jets, a glider, a balloon and a UAV), so every map icon shows up; the light ones fly low and slow
+under registration callsigns. Flags such as `-n`, `-taxiing`,
 `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon` change this
 (`go run ./cmd/replaygen -h`).
 

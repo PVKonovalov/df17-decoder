@@ -26,6 +26,16 @@ describe('MapLegend', () => {
   })
 })
 
+describe('MapLegend icons', () => {
+  it('lists the icons on the map, and none without aircraft', () => {
+    const { rerender } = render(<MapLegend mode="altitude" kinds={['heavy', 'rotor']} />)
+    const list = screen.getByRole('list', { name: 'Aircraft icons' })
+    expect(list.textContent).toBe('heavy (> 136 t)helicopter')
+    rerender(<MapLegend mode="altitude" />)
+    expect(screen.queryByRole('list', { name: 'Aircraft icons' })).toBeNull()
+  })
+})
+
 describe('MapLegend coverage view', () => {
   it('switches the coverage view', () => {
     const onCoverage = vi.fn()

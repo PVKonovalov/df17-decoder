@@ -4,6 +4,7 @@ import { useEffect, useMemo, type Dispatch } from 'react'
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { Action, State } from '../state/reducer'
 import { AircraftLayer } from './AircraftLayer'
+import { ICON_ORDER, ICONS, iconFor, iconSvg, type IconKind } from './icons'
 import { type CoverageView, useColorMode, useCoverageView, useHeatBand } from './prefs'
 import { CoverageLayer } from './CoverageLayer'
 import { HEAT_BANDS, type HeatBand, hasSignal as gridHasSignal } from './heatmap'
@@ -27,20 +28,34 @@ interface Props {
   state: State
   dispatch: Dispatch<Action>
   showLegend?: boolean
+  colorMode?: ColorMode // chosen marker colors, when the caller shares them (with the table); else remembered here
+  onColorMode?: (m: ColorMode) => void
 }
 
 /**
  * LiveMap shows the receiver with range rings and all aircraft with a position, once the receiver and the
  * tile layer (the map section of the service config) are known.
  */
-export function LiveMap({ state, dispatch, showLegend = true }: Props) {
+export function LiveMap(props: Props) {
+  const { state, dispatch, showLegend = true } = props
   const { receiver, map: tiles } = state
-  const [chosenMode, setColorMode] = useColorMode()
+  const [storedMode, setStoredMode] = useColorMode()
+  const chosenMode = props.colorMode ?? storedMode
+  const setColorMode = props.onColorMode ?? setStoredMode
   const [chosenView, setCoverageView] = useCoverageView()
   const [band, setBand] = useHeatBand()
   const heatSignal = useMemo(() => gridHasSignal(state.coverageGrid), [state.coverageGrid])
   const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
   const colorMode = hasSignal ? chosenMode : 'altitude'
+  const kinds = useMemo(() => {
+    const present = new Set<IconKind>()
+    for (const a of state.aircraft.values()) {
+      if (a.hasPosition) {
+        present.add(iconFor(a.category))
+      }
+    }
+    return ICON_ORDER.filter((k) => present.has(k))
+  }, [state.aircraft])
   const coverageView = chosenView === 'signal' && !heatSignal ? 'count' : chosenView
   if (receiver === null || tiles === null) {
     return <div className="map-wait">Waiting for receiver position…</div>
@@ -83,6 +98,7 @@ export function LiveMap({ state, dispatch, showLegend = true }: Props) {
         <MapLegend
           mode={colorMode}
           onMode={hasSignal ? setColorMode : undefined}
+          kinds={kinds}
           coverage={coverageView}
           onCoverage={setCoverageView}
           heatSignal={heatSignal}
@@ -200,6 +216,7 @@ export function MapLegend({
   heatSignal = false,
   band = 'all',
   onBand,
+  kinds = [],
 }: {
   mode: ColorMode
   onMode?: ((m: ColorMode) => void) | undefined
@@ -208,6 +225,7 @@ export function MapLegend({
   heatSignal?: boolean
   band?: HeatBand
   onBand?: (b: HeatBand) => void
+  kinds?: readonly IconKind[]
 }) {
   const heat = coverage === 'signal' || coverage === 'count'
   const signal = mode === 'signal'
@@ -244,6 +262,16 @@ export function MapLegend({
         )}
         <span className="legend-swatch" style={{ background: NO_ALT_COLOR }} /> {signal ? 'no signal level' : 'unknown'}
       </div>
+      {kinds.length > 0 && (
+        <ul className="legend-icons" aria-label="Aircraft icons">
+          {kinds.map((k) => (
+            <li key={k}>
+              <span className="ac-icon" dangerouslySetInnerHTML={{ __html: iconSvg(k, 0.7) }} />
+              {ICONS[k].label}
+            </li>
+          ))}
+        </ul>
+      )}
       {onCoverage !== undefined && (
         <div className="legend-coverage">
           <div className="legend-title">Coverage</div>

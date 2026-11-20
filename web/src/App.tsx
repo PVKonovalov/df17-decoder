@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, type CSSProperties } from 'react'
+import { useEffect, useMemo, useReducer, useRef, type CSSProperties } from 'react'
 import { useLiveData } from './api/live'
 import { PLAYBACK_SPEEDS } from './api/types'
 import { DetailPanel } from './components/DetailPanel'
@@ -6,7 +6,7 @@ import { Header } from './components/Header'
 import { Splitter, useSplit } from './components/Splitter'
 import { Deck } from './deck/Deck'
 import { LiveMap } from './map/LiveMap'
-import { usePanel } from './map/prefs'
+import { useColorMode, usePanel } from './map/prefs'
 import { initialState, reducer, type State } from './state/reducer'
 import { parseUrl, replaceUrl } from './state/url'
 import { AircraftTable } from './table/AircraftTable'
@@ -47,6 +47,9 @@ export function App() {
   const [split, setSplit] = useSplit()
   const [showTable, setShowTable] = usePanel('table')
   const [showLegend, setShowLegend] = usePanel('legend')
+  const [chosenMode, setColorMode] = useColorMode()
+  const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
+  const colorMode = hasSignal ? chosenMode : 'altitude'
   const selected = state.selected === null ? undefined : state.aircraft.get(state.selected)
 
   return (
@@ -61,13 +64,13 @@ export function App() {
         style={showTable ? ({ '--split': `${split}%` } as CSSProperties) : undefined}
       >
         <div className="map-pane">
-          <LiveMap state={state} dispatch={dispatch} showLegend={showLegend} />
+          <LiveMap state={state} dispatch={dispatch} showLegend={showLegend} colorMode={chosenMode} onColorMode={setColorMode} />
           {selected && <DetailPanel aircraft={selected} dispatch={dispatch} moment={moment} />}
         </div>
         {showTable && (
           <>
             <Splitter onChange={setSplit} />
-            <AircraftTable aircraft={state.aircraft} selected={state.selected} dispatch={dispatch} />
+            <AircraftTable aircraft={state.aircraft} selected={state.selected} dispatch={dispatch} colorMode={colorMode} />
           </>
         )}
       </main>

@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
+	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/source"
 	"github.com/PVKonovalov/df17-decoder/internal/stats"
@@ -28,8 +30,13 @@ func decode(t *testing.T, msg []byte) modes.Message {
 func TestEncoders_RoundTrip(t *testing.T) {
 	const icao = 0x738ABC
 
-	if m := decode(t, identification(icao, "ELY001")); m.ICAO != icao || m.Identification.Callsign != "ELY001" {
-		t.Errorf("identification: %+v", m.Identification)
+	for _, c := range categories {
+		if m := decode(t, identification(icao, "ELY001", c.code)); m.ICAO != icao || m.Identification.Callsign != "ELY001" || m.Identification.Category != c.code {
+			t.Errorf("identification %s: %+v", c.code, m.Identification)
+		}
+	}
+	if m := decode(t, identification(icao, "TUG1", "C2")); m.Identification.Category != "C2" {
+		t.Errorf("vehicle identification: %+v", m.Identification)
 	}
 
 	m := decode(t, airbornePosition(icao, 25.08, 22.81, 12000, true))
@@ -216,7 +223,7 @@ func TestSurfaceEncoder_RoundTrip(t *testing.T) {
 	if math.Abs(*p.GroundSpeed-15) > 0.5 || math.Abs(*p.Track-271) > 360.0/128 {
 		t.Errorf("gs=%v track=%v", *p.GroundSpeed, *p.Track)
 	}
-	if m := decode(t, onGround(identification(0x738ABC, "ELY1"))); m.OnGround == nil || !*m.OnGround || m.Identification.Callsign != "ELY1" {
+	if m := decode(t, onGround(identification(0x738ABC, "ELY1", "A3"))); m.OnGround == nil || !*m.OnGround || m.Identification.Callsign != "ELY1" {
 		t.Errorf("ground identification: %+v", m)
 	}
 	for _, kt := range []float64{0, 0.125, 0.5, 1, 1.75, 2, 14.5, 15, 19, 69, 70, 98, 100, 170, 175, 300} {
@@ -308,5 +315,24 @@ func TestSignalByte(t *testing.T) {
 	}
 	if d := db(signalByte(1000, -5)); d < -41 || d > -38 { // -40 dBFS quantized to byte 3
 		t.Errorf("clamp: %.1f dBFS, want about -40", d)
+	}
+}
+
+func TestNewFleet_Categories(t *testing.T) {
+	o := options{lat: 25.07, lon: 22.87, count: 300, duration: 60, step: 0.5, maxRangeNm: 150, seed: 3, taxiing: 6}
+	seen := map[string]int{}
+	for _, a := range newFleet(o, rand.New(rand.NewPCG(o.seed, 1))) {
+		seen[a.category]++
+		if lowAndSlow(a.category) && (a.alt > 8000 || a.gs > 140 || history.OperatorPrefix(a.callsign) != "") {
+			t.Errorf("%s %s: alt %.0f gs %.0f", a.category, a.callsign, a.alt, a.gs)
+		}
+	}
+	for _, c := range []string{"A1", "A2", "A3", "A5", "A7", "C2"} {
+		if seen[c] == 0 {
+			t.Errorf("no %s aircraft: %v", c, seen)
+		}
+	}
+	if seen["C2"] != o.taxiing/3 {
+		t.Errorf("vehicles %d, want %d", seen["C2"], o.taxiing/3)
 	}
 }

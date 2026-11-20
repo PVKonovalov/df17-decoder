@@ -4,10 +4,8 @@ import { useMap } from 'react-leaflet'
 import type { Aircraft } from '../api/types'
 import type { Action, TrailPoint } from '../state/reducer'
 import { newAgeMs } from '../table/rows'
+import { iconFor, iconRotation, iconSvg, type IconKind } from './icons'
 import { type ColorMode, dataNow, isStale, markerColor, markerLabel, rotation, trailSegments } from './style'
-
-const PLANE_SVG =
-  '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 1.5c.8 0 1.3.7 1.3 1.6V9l8 4.8v2.1l-8-2.4v5l2.3 1.7v1.8L12 21.1 8.4 22v-1.8l2.3-1.7v-5l-8 2.4v-2.1l8-4.8V3.1c0-.9.5-1.6 1.3-1.6z"/></svg>'
 
 interface Entry {
   marker: L.Marker
@@ -19,6 +17,7 @@ interface Entry {
   trailStyle: string // stale/selected flags the trail was drawn with
   color: string
   rotation: number
+  kind: IconKind | null
 }
 
 interface Props {
@@ -30,7 +29,8 @@ interface Props {
 }
 
 /**
- * AircraftLayer draws one rotated marker, colored by altitude or signal (colorMode), with a label and an
+ * AircraftLayer draws one marker per aircraft, shaped by its emitter category (icons.ts), rotated by its track and
+ * colored by altitude or signal (colorMode), with a label and an
  * altitude-colored trail per aircraft with a position. Markers are created once and updated in place on every
  * snapshot; trails are redrawn only when the aircraft's trail or its stale/selected state changes.
  */
@@ -90,7 +90,13 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch, colorMode 
         e.plane.style.color = color
         e.color = color
       }
-      const deg = rotation(a)
+      const kind = iconFor(a.category)
+      if (e.kind !== kind) {
+        e.plane.innerHTML = iconSvg(kind)
+        e.kind = kind
+        e.rotation = NaN
+      }
+      const deg = iconRotation(kind, rotation(a))
       if (e.rotation !== deg) {
         e.plane.style.transform = `rotate(${deg}deg)`
         e.rotation = deg
@@ -121,7 +127,7 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch, colorMode 
 function createEntry(map: L.Map, a: Aircraft, onSelect: (icao: string) => void): Entry {
   const icon = L.divIcon({
     className: 'ac',
-    html: `<div class="ac-plane">${PLANE_SVG}</div><div class="ac-label"></div>`,
+    html: '<div class="ac-plane"></div><div class="ac-label"></div>',
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   })
@@ -138,7 +144,7 @@ function createEntry(map: L.Map, a: Aircraft, onSelect: (icao: string) => void):
     throw new Error('aircraft marker element missing')
   }
   const trail = L.layerGroup().addTo(map)
-  return { marker, root, plane, label, trail, trailData: undefined, trailStyle: '', color: '', rotation: NaN }
+  return { marker, root, plane, label, trail, trailData: undefined, trailStyle: '', color: '', rotation: NaN, kind: null }
 }
 
 function drawTrail(

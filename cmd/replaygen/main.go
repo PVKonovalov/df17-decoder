@@ -36,6 +36,7 @@ type options struct {
 type aircraft struct {
 	icao       uint32
 	callsign   string
+	category   string // emitter category, e.g. "A3"
 	squawk     string
 	adsb       bool
 	lat, lon   float64
@@ -53,6 +54,48 @@ type aircraft struct {
 	phase      int // spreads periodic messages over ticks
 	identEvery int // ticks
 	start, end int // transmits on ticks [start, end)
+}
+
+// categories is the mix of emitter categories of airborne ADS-B aircraft, by weight.
+var categories = []struct {
+	code   string
+	weight int
+}{
+	{"A3", 55}, {"A5", 15}, {"A2", 10}, {"A1", 8}, {"A4", 4}, {"A7", 3}, {"A6", 2}, {"B1", 1}, {"B2", 1}, {"B6", 1},
+}
+
+// pickCategory draws an emitter category from the categories mix.
+func pickCategory(r *rand.Rand) string {
+	total := 0
+	for _, c := range categories {
+		total += c.weight
+	}
+	n := r.IntN(total)
+	for _, c := range categories {
+		if n < c.weight {
+			return c.code
+		}
+		n -= c.weight
+	}
+	return "A3"
+}
+
+// lowAndSlow reports whether the category flies low and slowly under a registration callsign.
+func lowAndSlow(category string) bool {
+	switch category {
+	case "A1", "A7", "B1", "B2", "B6":
+		return true
+	}
+	return false
+}
+
+// registration is a registration-style callsign, e.g. "4XCAB", that is not an airline flight number.
+func registration(r *rand.Rand) string {
+	b := []byte("4X")
+	for range 3 {
+		b = append(b, byte('A'+r.IntN(26)))
+	}
+	return string(b)
 }
 
 var airlines = []string{"ELY", "ISR", "AIZ", "WZZ", "RYR", "UAE", "THY", "DLH", "AFR", "BAW", "KLM", "AEE"}
@@ -98,6 +141,16 @@ func newFleet(o options, r *rand.Rand) []*aircraft {
 			a.alt = 2000 + r.Float64()*37000
 			a.gs = 220 + r.Float64()*260
 			a.vr = []float64{0, 0, 0, 1500, -1200, 2200, -800}[r.IntN(7)]
+			a.category = pickCategory(r)
+			switch {
+			case a.category == "B2":
+				a.callsign, a.alt, a.gs, a.vr, a.turn = registration(r), 2000+r.Float64()*4000, 8+r.Float64()*6, 0, 0
+			case lowAndSlow(a.category):
+				a.callsign, a.alt, a.gs = registration(r), 1000+r.Float64()*7000, 60+r.Float64()*80
+				a.vr = []float64{0, 0, 500, -500}[r.IntN(4)]
+			case a.category == "A5":
+				a.alt = max(a.alt, 15000+r.Float64()*26000)
+			}
 			if arriving { // enters coverage at the edge, heading roughly towards the receiver
 				edge := o.maxRangeNm * 0.85
 				a.lat = o.lat + edge*math.Cos(brg)/60
@@ -114,7 +167,7 @@ func newFleet(o options, r *rand.Rand) []*aircraft {
 	}
 	if len(fleet) > 0 && o.emergencySqk != "" {
 		e := fleet[0]
-		e.adsb, e.emergency, e.squawk, e.callsign = true, true, o.emergencySqk, "ELY7700"
+		e.adsb, e.emergency, e.squawk, e.callsign, e.category = true, true, o.emergencySqk, "ELY7700", "A3"
 		e.start, e.end = 0, ticks
 	}
 	return append(fleet, newTaxiing(o, r, seen)...)
@@ -132,9 +185,14 @@ func newTaxiing(o options, r *rand.Rand, seen map[uint32]bool) []*aircraft {
 			icao = icaoBlocks[r.IntN(len(icaoBlocks))] | uint32(r.IntN(0x1000))
 		}
 		seen[icao] = true
+		callsign, category := fmt.Sprintf("%s%d", airlines[r.IntN(len(airlines))], 10+r.IntN(990)), "A3"
+		if i < o.taxiing/3 { // a service vehicle for every three on the airfield
+			callsign, category = fmt.Sprintf("TUG%d", i+1), "C2"
+		}
 		fleet[i] = &aircraft{
 			icao:       icao,
-			callsign:   fmt.Sprintf("%s%d", airlines[r.IntN(len(airlines))], 10+r.IntN(990)),
+			callsign:   callsign,
+			category:   category,
 			squawk:     "2000",
 			adsb:       true,
 			ground:     true,
@@ -216,7 +274,7 @@ func (a *aircraft) frames(n int) [][]byte {
 		out = append(out, surfacePosition(a.icao, a.lat, a.lon, a.gs, a.track, a.odd))
 		a.odd = !a.odd
 		if (n+a.phase)%a.identEvery == 0 {
-			out = append(out, onGround(identification(a.icao, a.callsign)))
+			out = append(out, onGround(identification(a.icao, a.callsign, a.category)))
 		}
 		return out
 	}
@@ -227,7 +285,7 @@ func (a *aircraft) frames(n int) [][]byte {
 			out = append(out, velocity(a.icao, a.gs, a.track, a.vr))
 		}
 		if (n+a.phase)%a.identEvery == 0 {
-			out = append(out, identification(a.icao, a.callsign))
+			out = append(out, identification(a.icao, a.callsign, a.category))
 			if a.emergency {
 				out = append(out, emergencyStatus(a.icao, 1, a.squawk))
 			}

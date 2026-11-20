@@ -545,6 +545,9 @@ body {
 
 .ac-plane {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
 }
@@ -572,11 +575,55 @@ body {
   }
 }
 
-.ac-plane svg {
+.ac-plane svg,
+.ac-icon svg {
   display: block;
+  flex: none;
   fill: currentColor;
+}
+
+.ac-halo {
+  fill: var(--halo);
   stroke: var(--halo);
-  stroke-width: 1;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* the map icon in the table and the legend */
+.ac-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.ac-table td:first-child,
+.ac-table th:first-child {
+  width: 28px;
+  padding-right: 0;
+}
+
+.legend-icons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+  margin: 6px 0 0;
+  padding: 6px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.legend-icons li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-icons .ac-icon {
+  color: var(--text);
 }
 
 .ac.selected .ac-plane {

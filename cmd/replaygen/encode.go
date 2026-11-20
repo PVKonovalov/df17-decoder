@@ -47,9 +47,9 @@ func setParity(msg []byte, ap uint32) {
 	msg[n-3], msg[n-2], msg[n-1] = byte(p>>16), byte(p>>8), byte(p)
 }
 
-// identification: TC 4, category A3, 8-character callsign.
-func identification(icao uint32, callsign string) []byte {
-	cs := [][2]uint64{{4, 5}, {3, 3}}
+// identification: TC 1–4 and CA from the emitter category ("A3": TC 4, CA 3), 8-character callsign.
+func identification(icao uint32, callsign, category string) []byte {
+	cs := [][2]uint64{{uint64(4 - (category[0] - 'A')), 5}, {uint64(category[1] - '0'), 3}}
 	padded := (strings.ToUpper(callsign) + "        ")[:8]
 	for _, c := range padded {
 		cs = append(cs, [2]uint64{uint64(strings.IndexRune(charset, c)), 6})

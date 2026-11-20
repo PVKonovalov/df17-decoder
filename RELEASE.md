@@ -52,3 +52,6 @@
 - 2026-11-20: Stats M5 (schema v4): operators chart, receiver health per hour (counters, silent minutes, signal), altitude bands, notable aircraft (emergencies, first-seen ICAO); endpoints.
 - 2026-11-20: Quiet sky is not a recording problem: tape LastFlush moves while idle, REC uses serverTime (new in /api/stats), /healthz 200 while connected and idle.
 - 2026-11-20: Tape deck: explicit ⏸ pause / ▶ play in playback; the counter shows local time and UTC, in live too (LIVE and the server's time).
+- 2026-11-20: Aircraft icons by ADS-B emitter category (heavy, large, small, light, fast, helicopter, glider, balloon, UAV, vehicle) on the map, in the table (same color) and legend.
+- 2026-11-20: Demo generator: ADS-B aircraft get a realistic mix of emitter categories (light ones low and slow with registrations) and C2 service vehicles taxi, so all icons show.
+- 2026-11-20: Bolder aircraft icons (helicopter, UAV, light, glider); the white outline is one layer under the whole icon, so it no longer cuts thin parts.

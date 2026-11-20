@@ -1,4 +1,5 @@
 import { useEffect, useState, type Dispatch, type ReactNode } from 'react'
+import { categoryText } from '../map/icons'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
 import { urlWith } from '../state/url'
@@ -36,7 +37,7 @@ export function detailRows(a: Aircraft): [string, ReactNode][] {
     ['Squawk', a.squawk],
     ['Emergency', a.emergency !== undefined && a.emergency !== 'none' ? a.emergency : undefined],
     ['Country', a.country],
-    ['Category', a.category],
+    ['Category', categoryText(a.category)],
     ['Type', a.adsb ? `ADS-B${a.adsbVersion === undefined ? '' : ` v${a.adsbVersion}`}` : 'Mode S only'],
     ['Altitude (baro)', ft(a.altBaro)],
     ['Altitude (GNSS)', ft(a.altGnss)],

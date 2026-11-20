@@ -78,6 +78,33 @@ describe('AircraftLayer on the ground', () => {
   })
 })
 
+describe('AircraftLayer icons', () => {
+  it('shapes markers by category, and reshapes one when its category arrives', () => {
+    const heli = ac('738010', '2026-11-19T09:55:00Z', { category: 'A7', track: 90 })
+    const balloon = ac('738011', '2026-11-19T09:55:00Z', { category: 'B2', track: 90 })
+    const unknown = ac('738012', '2026-11-19T09:55:00Z', { track: 90 })
+    const aircraft = new Map([heli, balloon, unknown].map((a) => [a.icao, a]))
+    const layer = (m: Map<string, Aircraft>) => (
+      <MapContainer center={[25, 23]} zoom={8} style={{ width: 400, height: 300 }}>
+        <AircraftLayer aircraft={m} trails={new Map()} selected={null} dispatch={vi.fn()} />
+      </MapContainer>
+    )
+    const r = render(layer(aircraft))
+    const plane = (icao: string) => r.container.querySelector<HTMLElement>(`.ac[title="${icao}"] .ac-plane`)
+    const svg = (icao: string) => plane(icao)?.innerHTML ?? ''
+    expect(svg('738010')).not.toBe(svg('738012'))
+    expect(plane('738010')?.style.transform).toBe('rotate(90deg)')
+    expect(plane('738011')?.style.transform).toBe('rotate(0deg)') // balloons don't turn
+    const generic = svg('738012')
+
+    const before = plane('738012')
+    r.rerender(layer(new Map([...aircraft, ['738012', { ...unknown, category: 'A5' }]])))
+    expect(plane('738012')).toBe(before) // same marker, new shape
+    expect(svg('738012')).not.toBe(generic)
+    expect(svg('738012')).toContain('width="30"')
+  })
+})
+
 describe('AircraftLayer color mode', () => {
   it('recolors existing markers in place when switching to signal', () => {
     const strong = ac('738005', '2026-11-19T09:55:00Z', { altBaro: 30000, rssi: -4 })
