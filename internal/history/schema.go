@@ -77,6 +77,12 @@ var migrations = []string{
 		squawk TEXT NOT NULL DEFAULT '', t INTEGER NOT NULL, callsign TEXT,
 		PRIMARY KEY (kind, icao, flight_id, squawk)) WITHOUT ROWID;
 	CREATE INDEX notable_t ON notable_events(t);`,
+
+	// the live counters of unfinished hours, saved on shutdown and read back by the next run (rollup.go)
+	`CREATE TABLE live_partial (hour INTEGER PRIMARY KEY, saved_at INTEGER NOT NULL,
+		messages INTEGER NOT NULL, frames INTEGER NOT NULL, crc_failures INTEGER NOT NULL,
+		fixed_bit_errors INTEGER NOT NULL, cpr_rejected INTEGER NOT NULL, reconnects INTEGER NOT NULL,
+		silent_minutes INTEGER NOT NULL, signal_frames INTEGER NOT NULL, signal_power REAL NOT NULL);`,
 }
 
 // SchemaVersion is the schema version this build writes.

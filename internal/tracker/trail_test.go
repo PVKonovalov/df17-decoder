@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -272,5 +273,45 @@ func TestFlight_ModeSOnlySamples(t *testing.T) {
 	}
 	if got := sink.samples[f.ID]; !reflect.DeepEqual(got, want) {
 		t.Errorf("samples\n got %+v\nwant %+v", got, want)
+	}
+}
+
+func TestFlight_ResumedAfterRestart(t *testing.T) {
+	// the first run flies 10 s and shuts down, leaving its flight open
+	first := newFakeSink()
+	tr, _ := newTrailTracker(t, 0, first)
+	fly(tr, t0, 10, straight, level)
+	tr.SyncFlights()
+	if len(first.closed()) != 0 {
+		t.Fatalf("SyncFlights closed %v", first.closed())
+	}
+	info := tr.Flights()[modes.ICAOString(testICAO)]
+	resume := []ResumedFlight{{Info: info, Trail: trailOf(t, tr)}}
+
+	start := func(at time.Time) (*Tracker, *fakeSink) {
+		sink := newFakeSink()
+		w := &fakeWall{t: at}
+		return New(Options{TTL: 60 * time.Second, KnownAddressTTL: 60 * time.Second, Resolver: resolver(52.0, 4.4),
+			Flights: sink, Clock: w.now, LastFlightID: 7, Resume: resume}), sink
+	}
+
+	// heard again 3 minutes later: the same flight continues, with the stored trail
+	next, sink := start(t0.Add(3 * time.Minute))
+	fly(next, t0.Add(3*time.Minute), 10, straight, level)
+	if f := next.Flights()[modes.ICAOString(testICAO)]; f.ID != info.ID || !f.FirstSeen.Equal(t0) || f.Points != info.Points+3 {
+		t.Errorf("resumed flight %+v, want flight %d continued", f, info.ID)
+	}
+	if n := len(trailOf(t, next)); n != len(resume[0].Trail)+3 {
+		t.Errorf("trail has %d points, want the stored %d plus 3", n, len(resume[0].Trail))
+	}
+	if len(sink.closed()) != 0 {
+		t.Errorf("closed %v", sink.closed())
+	}
+
+	// heard only after the gap: the resumed flight closes and a new one opens
+	late, sink := start(t0.Add(time.Hour))
+	fly(late, t0.Add(time.Hour), 2, straight, level)
+	if f := late.Flights()[modes.ICAOString(testICAO)]; f.ID != 8 || !slices.Equal(sink.closed(), []int64{info.ID}) {
+		t.Errorf("flight %+v, closed %v", f, sink.closed())
 	}
 }

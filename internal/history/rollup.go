@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"regexp"
@@ -50,29 +51,74 @@ type RollupSources struct {
 // sizes are the byte counts stored with an hour; nil when unknown.
 type sizes struct{ db, tape *int64 }
 
-// liveHour is what only a process running through the whole hour knows: counter differences and silent minutes.
+// liveHour is what only a running process knows: counter differences and silent minutes.
 type liveHour struct {
 	messages, frames, crcFailures, fixedBits, cprRejected, reconnects, silentMinutes int64
-	signalDbfs                                                                       *float64
+	signalFrames                                                                     int64
+	signalPower                                                                      float64
 }
 
-// liveSnapshots keeps the counters at hour boundaries and the silent minutes per hour; an hour's values are known
-// only when this process saw both of its boundaries.
+// dbfs is the average signal level, nil without frames carrying one.
+func (l *liveHour) dbfs() *float64 {
+	if l.signalFrames <= 0 || l.signalPower <= 0 {
+		return nil
+	}
+	return new(10 * math.Log10(l.signalPower/float64(l.signalFrames)))
+}
+
+func (l *liveHour) add(o liveHour) {
+	l.messages += o.messages
+	l.frames += o.frames
+	l.crcFailures += o.crcFailures
+	l.fixedBits += o.fixedBits
+	l.cprRejected += o.cprRejected
+	l.reconnects += o.reconnects
+	l.silentMinutes += o.silentMinutes
+	l.signalFrames += o.signalFrames
+	l.signalPower += o.signalPower
+}
+
+// carried is the part of an hour a previous run saw, from the hour's start until end.
+type carried struct {
+	l   liveHour
+	end time.Time
+}
+
+// liveSnapshots keeps the counters at hour boundaries and at this run's start, the silent minutes per hour, and
+// the parts of hours carried over from the previous run (saved on shutdown). An hour's values are known when
+// they cover it from its start: this run saw the boundary, or a carried part continues into this run, the time in
+// between counting as silent (nothing was received).
 type liveSnapshots struct {
 	mu        sync.Mutex
 	snaps     map[int64]Counters // hour start, unix s → counters
 	silent    map[int64]int64    // hour start → minutes without a frame
-	lastMin   time.Time          // the previous minute sample
+	carry     map[int64]carried  // hour start → part seen by the previous run
+	startAt   time.Time          // this run's start; zero before begin
+	start     Counters
+	lastMin   time.Time // the previous minute sample
 	lastFrame uint64
+}
+
+func (m *liveSnapshots) init() {
+	if m.snaps == nil {
+		m.snaps, m.silent, m.carry = map[int64]Counters{}, map[int64]int64{}, map[int64]carried{}
+	}
+}
+
+// begin records this run's start at with counters c and the parts carried over from the previous run.
+func (m *liveSnapshots) begin(at time.Time, c Counters, carry map[int64]carried) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	m.startAt, m.start = at, c
+	maps.Copy(m.carry, carry)
 }
 
 // boundary stores the counters at the start of hour and forgets snapshots older than 3 hours.
 func (m *liveSnapshots) boundary(hour time.Time, c Counters) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.snaps == nil {
-		m.snaps, m.silent = map[int64]Counters{}, map[int64]int64{}
-	}
+	m.init()
 	m.snaps[hour.Unix()] = c
 	old := hour.Add(-3 * time.Hour).Unix()
 	for h := range m.snaps {
@@ -81,22 +127,25 @@ func (m *liveSnapshots) boundary(hour time.Time, c Counters) {
 			delete(m.silent, h)
 		}
 	}
+	for h := range m.carry {
+		if h < old {
+			delete(m.carry, h)
+		}
+	}
 }
 
 // minute samples the frame counter at the minute boundary at; a minute whose count didn't move is silent.
 func (m *liveSnapshots) minute(at time.Time, frames uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.silent == nil {
-		m.snaps, m.silent = map[int64]Counters{}, map[int64]int64{}
-	}
+	m.init()
 	if m.lastMin.Equal(at.Add(-time.Minute)) && frames == m.lastFrame {
 		m.silent[m.lastMin.Truncate(time.Hour).Unix()]++
 	}
 	m.lastMin, m.lastFrame = at, frames
 }
 
-func diff(a, b Counters, silent int64) *liveHour {
+func diff(a, b Counters) *liveHour {
 	if b.Messages < a.Messages || b.Frames < a.Frames {
 		return nil
 	}
@@ -104,11 +153,43 @@ func diff(a, b Counters, silent int64) *liveHour {
 		messages: int64(b.Messages - a.Messages), frames: int64(b.Frames - a.Frames),
 		crcFailures: int64(b.CRCFailures - a.CRCFailures), fixedBits: int64(b.FixedBitErrors - a.FixedBitErrors),
 		cprRejected: int64(b.CPRRejected - a.CPRRejected), reconnects: int64(b.Reconnects - a.Reconnects),
-		silentMinutes: silent,
 	}
-	if n := b.SignalFrames - a.SignalFrames; b.SignalFrames > a.SignalFrames && b.SignalPower > a.SignalPower {
-		l.signalDbfs = new(10 * math.Log10((b.SignalPower-a.SignalPower)/float64(n)))
+	if b.SignalFrames > a.SignalFrames && b.SignalPower > a.SignalPower {
+		l.signalFrames, l.signalPower = int64(b.SignalFrames-a.SignalFrames), b.SignalPower-a.SignalPower
 	}
+	return l
+}
+
+// part returns the values of the hour starting at hour, from its start until the counters end; nil when they
+// don't cover the hour from its start. Called with m.mu held.
+func (m *liveSnapshots) part(hour time.Time, end Counters) *liveHour {
+	key, next := hour.Unix(), hour.Add(time.Hour)
+	if a, ok := m.snaps[key]; ok {
+		l := diff(a, end)
+		if l != nil {
+			l.silentMinutes = m.silent[key]
+		}
+		return l
+	}
+	c, ok := m.carry[key]
+	switch {
+	case !ok:
+		return nil
+	case !c.end.Before(next): // a whole hour from the previous run
+		return &c.l
+	case m.startAt.IsZero() || m.startAt.Before(c.end):
+		return nil
+	case !m.startAt.Before(next): // down from c.end until after the hour
+		l := c.l
+		l.silentMinutes += int64(next.Sub(c.end) / time.Minute)
+		return &l
+	}
+	l := diff(m.start, end)
+	if l == nil {
+		return nil
+	}
+	l.add(c.l)
+	l.silentMinutes += m.silent[key] + int64(m.startAt.Sub(c.end)/time.Minute)
 	return l
 }
 
@@ -116,23 +197,43 @@ func diff(a, b Counters, silent int64) *liveHour {
 func (m *liveSnapshots) since(hour time.Time, now Counters) *liveHour {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	a, ok := m.snaps[hour.Unix()]
-	if !ok {
-		return nil
-	}
-	return diff(a, now, m.silent[hour.Unix()])
+	return m.part(hour, now)
 }
 
-// hour returns the live values of the finished hour starting at hour, nil when a boundary was missed.
+// hour returns the live values of the finished hour starting at hour, nil when they don't cover it.
 func (m *liveSnapshots) hour(hour time.Time) *liveHour {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	a, okA := m.snaps[hour.Unix()]
-	b, okB := m.snaps[hour.Add(time.Hour).Unix()]
-	if !okA || !okB {
-		return nil
+	return m.hourLocked(hour)
+}
+
+func (m *liveSnapshots) hourLocked(hour time.Time) *liveHour {
+	next := hour.Add(time.Hour)
+	if end, ok := m.snaps[next.Unix()]; ok {
+		return m.part(hour, end)
 	}
-	return diff(a, b, m.silent[hour.Unix()])
+	if c, ok := m.carry[hour.Unix()]; ok && (!c.end.Before(next) || !m.startAt.Before(next)) {
+		return m.part(hour, Counters{})
+	}
+	return nil
+}
+
+// unsaved returns the parts this run would lose at now: the current hour so far, and the previous hour when its
+// rollup (at rollupDelay past the hour) hasn't run yet; by hour start, with the time each part ends.
+func (m *liveSnapshots) unsaved(now time.Time, c Counters) map[int64]carried {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[int64]carried{}
+	cur := now.Truncate(time.Hour)
+	if l := m.part(cur, c); l != nil {
+		out[cur.Unix()] = carried{l: *l, end: now}
+	}
+	if prev := cur.Add(-time.Hour); now.Before(cur.Add(rollupDelay)) {
+		if l := m.hourLocked(prev); l != nil {
+			out[prev.Unix()] = carried{l: *l, end: cur}
+		}
+	}
+	return out
 }
 
 // RunRollups computes the hourly rollups until ctx is cancelled: a background backfill of missing hours first,
@@ -143,6 +244,18 @@ func (s *Store) RunRollups(ctx context.Context, src RollupSources) {
 	s.src.Store(&src)
 	live := &s.live
 	now := s.opt.Now()
+	if src.Counters != nil {
+		carry, err := s.loadLive()
+		if err != nil {
+			s.opt.Logger.Warn("stats: reading the previous run's counters failed", "err", err)
+		}
+		live.begin(now, src.Counters(), carry)
+		defer func() {
+			if err := s.saveLive(live.unsaved(s.opt.Now(), src.Counters())); err != nil {
+				s.opt.Logger.Warn("stats: saving the counters of the unfinished hours failed", "err", err)
+			}
+		}()
+	}
 	nextBoundary := now.Truncate(time.Hour).Add(time.Hour)
 	nextMinute := now.Truncate(time.Minute).Add(time.Minute)
 	nextRollup := now.Truncate(time.Hour).Add(rollupDelay)
@@ -198,6 +311,58 @@ func (s *Store) RunRollups(ctx context.Context, src RollupSources) {
 		case <-timer.C:
 		}
 	}
+}
+
+// loadLive reads and deletes the parts of hours saved by the previous run; deleting them means a run that ends
+// without saving (a crash) leaves those hours unknown instead of counting its time as silent.
+func (s *Store) loadLive() (map[int64]carried, error) {
+	rows, err := s.db.Query(`SELECT hour, saved_at, messages, frames, crc_failures, fixed_bit_errors, cpr_rejected,
+		reconnects, silent_minutes, signal_frames, signal_power FROM live_partial`)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]carried{}
+	for rows.Next() {
+		var (
+			h, saved int64
+			l        liveHour
+		)
+		if err := rows.Scan(&h, &saved, &l.messages, &l.frames, &l.crcFailures, &l.fixedBits, &l.cprRejected,
+			&l.reconnects, &l.silentMinutes, &l.signalFrames, &l.signalPower); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out[h] = carried{l: l, end: time.UnixMilli(saved)}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_, err = s.db.Exec(`DELETE FROM live_partial`)
+	return out, err
+}
+
+// saveLive replaces the saved parts of hours with parts, for the next run.
+func (s *Store) saveLive(parts map[int64]carried) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM live_partial`); err != nil {
+		return err
+	}
+	for h, c := range parts {
+		l := c.l
+		if _, err := tx.Exec(`INSERT INTO live_partial VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, h, c.end.UnixMilli(),
+			l.messages, l.frames, l.crcFailures, l.fixedBits, l.cprRejected, l.reconnects, l.silentMinutes,
+			l.signalFrames, l.signalPower); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func maxTime(a, b time.Time) time.Time {
@@ -445,7 +610,7 @@ func (s *Store) rollupHour(ctx context.Context, hour time.Time, live *liveHour, 
 	lv := make([]any, 8)
 	if live != nil {
 		lv = []any{live.messages, live.frames, live.crcFailures, live.fixedBits, live.cprRejected, live.reconnects,
-			live.silentMinutes, live.signalDbfs}
+			live.silentMinutes, live.dbfs()}
 	}
 	args := append([]any{h, hs.adsb, hs.modes, hs.started, hs.positions, hs.maxRange, hs.bearing, sz.db, sz.tape}, lv...)
 	args = append(args, rollupVersion)

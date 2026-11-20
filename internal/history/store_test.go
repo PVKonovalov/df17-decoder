@@ -56,8 +56,8 @@ func point(at time.Time, alt int) tracker.TrackPoint {
 func TestOpen_CreatesSchema(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, file, Options{})
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 4 {
-		t.Errorf("schema version %d, want 4", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 5 {
+		t.Errorf("schema version %d, want 5", v)
 	}
 	if v := queryInt(t, s, `PRAGMA auto_vacuum`); v != 2 {
 		t.Errorf("auto_vacuum = %d, want 2 (incremental)", v)
@@ -192,6 +192,38 @@ func TestOpen_RecoversOpenFlights(t *testing.T) {
 	}
 	if s.LastFlightID() != 4 {
 		t.Errorf("last flight id %d, want 4", s.LastFlightID())
+	}
+}
+
+func TestOpen_ResumesRecentFlights(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "h.db")
+	s := open(t, file, Options{})
+	stop := run(s)
+	old, recent := flight(5, t0, false), flight(6, t0, false)
+	recent.ICAO, recent.MaxAlt = "738001", new(31000)
+	s.Flight(old)
+	s.Flight(recent)
+	s.Point(6, point(t0.Add(time.Minute), 30000))
+	s.Point(6, point(t0.Add(20*time.Minute), 31000))
+	stop()
+	s.Close()
+
+	now := t0.Add(25 * time.Minute)
+	s = open(t, file, Options{ResumeWithin: 11 * time.Minute, ResumeTrail: 10 * time.Minute, Now: func() time.Time { return now }})
+	defer s.Close()
+	r := s.ResumeFlights()
+	if len(r) != 1 || r[0].Info.ID != 6 || r[0].Info.Closed || *r[0].Info.MaxAlt != 31000 || r[0].Info.Country == "" ||
+		!r[0].Info.LastSeen.Equal(t0.Add(20*time.Minute)) {
+		t.Fatalf("resumed %+v", r)
+	}
+	if len(r[0].Trail) != 1 || r[0].Trail[0] != point(t0.Add(20*time.Minute), 31000) {
+		t.Errorf("trail (last 10 min) %+v", r[0].Trail)
+	}
+	if n := queryInt(t, s, `SELECT closed FROM flights WHERE id = 5`); n != 1 {
+		t.Error("an old open flight was not closed")
+	}
+	if s.Stats().FlightsOpen != 1 {
+		t.Errorf("open flights %d, want 1", s.Stats().FlightsOpen)
 	}
 }
 

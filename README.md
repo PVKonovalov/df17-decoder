@@ -102,7 +102,10 @@ sudo systemctl enable --now df17-decoder
 journalctl -u df17-decoder -f   # logs
 ```
 
-After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. The unit gives the
+After editing `/etc/df17-decoder/config.yaml`, run `sudo systemctl restart df17-decoder`. On SIGTERM the service
+finishes cleanly within a second: frames already received are still recorded and decoded, the tape segment is
+closed, the coverage file saved, the history written out and its database closed. A restart doesn't split flights or
+lose the hour's statistics (see below). The unit gives the
 service one writable directory, `/var/lib/df17-decoder`, and makes it the working directory, so
 `coverage.file: coverage.json` (or the full `/var/lib/df17-decoder/coverage.json`) keeps the coverage outline and
 grid across restarts, and the default `history.file: history.db` and `tape.dir: tape` land there too. A
@@ -242,8 +245,10 @@ history:
 
 Writing never slows decoding: points go through a bounded queue to one writer goroutine, and are dropped (and
 counted) if the database can't keep up. `/api/stats` then reports `historyFlightsOpen`, `historyPointsWritten`,
-`historyDropped`, `historyWriteErrors` and `historyLastFlush`. Flights left open by a crash are closed at the next
-start. The schema version is kept in the database and upgraded automatically.
+`historyDropped`, `historyWriteErrors` and `historyLastFlush`. With a live source (`tcp://`, `beast://`) a
+shutdown leaves the open flights open, and the next start continues each one whose aircraft was heard within
+`tracker.ttl` + `history.flightGap` (with its trail on the map), so a restart doesn't split flights. Older open
+flights, and all of them with a file or tape source, are closed at start; a crash is handled the same way. The schema version is kept in the database and upgraded automatically.
 
 **Disk use.** A stored point takes about 84 bytes including indexes. An aircraft in cruise stores about one point
 per 5 s (about 1.5 MB per day), more while turning or climbing, so count roughly 2 MB per day for every aircraft
@@ -293,8 +298,10 @@ Clicking an hour bar, a heatmap cell (its latest hour) or a day opens the map in
 The charts come from hourly rollups in the flight history database, so they need `history.enabled`. A job
 computes the previous hour at five past each hour; at start it backfills missing hours from the stored flights in
 the background, and recomputes hours of an older rollup version while their flights are still stored. Messages
-and the receiver counters are known only for hours this process saw from start to end (NULL after a restart in
-the middle of an hour, and for backfilled hours). Rollups are small (one row per hour plus one per country,
+and the receiver counters are known for hours seen from their start: on shutdown the service saves the counters
+of the unfinished hours (and of the previous hour while its rollup is pending), and the next run adds to them,
+counting the downtime as silent minutes. They stay unknown (NULL) for the hour the service first started in, after
+a crash, and for backfilled hours. Rollups are small (one row per hour plus one per country,
 callsign prefix and altitude band heard: about 1–2 KB per hour at a busy site, 10–20 MB per year) and kept much longer than flights:
 
 ```yaml

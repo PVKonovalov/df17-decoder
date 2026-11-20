@@ -55,3 +55,4 @@
 - 2026-11-20: Aircraft icons by ADS-B emitter category (heavy, large, small, light, fast, helicopter, glider, balloon, UAV, vehicle) on the map, in the table (same color) and legend.
 - 2026-11-20: Demo generator: ADS-B aircraft get a realistic mix of emitter categories (light ones low and slow with registrations) and C2 service vehicles taxi, so all icons show.
 - 2026-11-20: Bolder aircraft icons (helicopter, UAV, light, glider); the white outline is one layer under the whole icon, so it no longer cuts thin parts.
+- 2026-11-20: Restart keeps history whole: open flights resume after a restart (live sources), and the unfinished hours' message/receiver counters are saved on shutdown (schema v5).

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +33,9 @@ type Options struct {
 	QueueSize     int           // events buffered between flushes before new ones are dropped; 65536 when zero
 	Logger        *slog.Logger
 	Now           func() time.Time // wall clock for retention; time.Now when nil
+
+	ResumeWithin time.Duration // open flights last seen within this before now are kept open for the tracker to resume; 0 closes all
+	ResumeTrail  time.Duration // trail length loaded with a resumed flight
 
 	Receiver       *geo.Point    // for the rollups' max range; nil leaves it unknown
 	StatsRetention time.Duration // rollups older than this are deleted daily; 0 keeps them
@@ -69,6 +74,7 @@ type Store struct {
 	ro     *sql.DB // read-only connections for HTTP reads
 	queue  chan event
 	lastID int64
+	resume []tracker.ResumedFlight
 
 	open    map[int64]bool // open flights seen by the writer; Run only
 	failing bool           // the last write failed; Run only
@@ -135,21 +141,117 @@ func (s *Store) init() error {
 	if from != to {
 		s.opt.Logger.Info("history schema migrated", "file", s.opt.File, "from", from, "to", to)
 	}
-	res, err := s.db.Exec(`UPDATE flights SET closed = 1, last_seen = max(last_seen,
+	if _, err := s.db.Exec(`UPDATE flights SET last_seen = max(last_seen,
 		coalesce((SELECT max(t) FROM positions WHERE flight_id = flights.id), 0),
 		coalesce((SELECT max(t) FROM samples WHERE flight_id = flights.id), 0))
-		WHERE closed = 0`)
+		WHERE closed = 0`); err != nil {
+		return fmt.Errorf("history: recovery: %w", err)
+	}
+	cutoff := s.opt.Now().Add(-s.opt.ResumeWithin).UnixMilli()
+	if s.opt.ResumeWithin <= 0 {
+		cutoff = math.MaxInt64
+	}
+	res, err := s.db.Exec(`UPDATE flights SET closed = 1 WHERE closed = 0 AND last_seen < ?`, cutoff)
 	if err != nil {
 		return fmt.Errorf("history: recovery: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		s.opt.Logger.Info("history: closed flights left open by an unclean shutdown", "flights", n)
+		s.opt.Logger.Info("history: closed flights left open by the previous run", "flights", n)
+	}
+	if s.resume, err = s.openFlights(); err != nil {
+		return fmt.Errorf("history: resume: %w", err)
+	}
+	for _, r := range s.resume {
+		s.open[r.Info.ID] = true
+	}
+	s.flightsOpen.Store(int64(len(s.open)))
+	if len(s.resume) > 0 {
+		s.opt.Logger.Info("history: resuming flights of the previous run", "flights", len(s.resume))
 	}
 	if err := s.db.QueryRow(`SELECT coalesce(max(id), 0) FROM flights`).Scan(&s.lastID); err != nil {
 		return fmt.Errorf("history: %w", err)
 	}
 	return nil
 }
+
+// openFlights loads the flights still open, with their positions of the last ResumeTrail before their last_seen.
+func (s *Store) openFlights() ([]tracker.ResumedFlight, error) {
+	rows, err := s.db.Query(`SELECT id, icao, coalesce(callsign, ''), coalesce(squawk, ''), coalesce(category, ''),
+		adsb, first_seen, last_seen, points, max_alt, min_distance_nm FROM flights WHERE closed = 0 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	var out []tracker.ResumedFlight
+	for rows.Next() {
+		var f tracker.FlightInfo
+		var first, last int64
+		if err := rows.Scan(&f.ID, &f.ICAO, &f.Callsign, &f.Squawk, &f.Category, &f.ADSB, &first, &last, &f.Points,
+			&f.MaxAlt, &f.MinDistanceNm); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		f.FirstSeen, f.LastSeen = time.UnixMilli(first).UTC(), time.UnixMilli(last).UTC()
+		if icao, err := strconv.ParseUint(f.ICAO, 16, 24); err == nil {
+			f.Country = tracker.Country(uint32(icao))
+		}
+		out = append(out, tracker.ResumedFlight{Info: f})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		f := &out[i]
+		if f.Trail, err = s.trail(f.Info.ID, f.Info.LastSeen.Add(-s.opt.ResumeTrail).UnixMilli()); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// trail returns the stored positions of flight id from unix ms since on, oldest first.
+func (s *Store) trail(id, since int64) ([]tracker.TrackPoint, error) {
+	rows, err := s.db.Query(`SELECT t, lat, lon, alt, alt_gnss, gs, track, vr, on_ground FROM positions
+		WHERE flight_id = ? AND t >= ? ORDER BY t`, id, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []tracker.TrackPoint
+	for rows.Next() {
+		var (
+			p         tracker.TrackPoint
+			alt, vr   sql.NullInt64
+			gs, track sql.NullFloat64
+			gnss      bool
+		)
+		if err := rows.Scan(&p.T, &p.Lat, &p.Lon, &alt, &gnss, &gs, &track, &vr, &p.OnGround); err != nil {
+			return nil, err
+		}
+		switch {
+		case !alt.Valid:
+		case gnss:
+			p.Alt, p.AltSrc = int(alt.Int64), tracker.AltGNSS
+		default:
+			p.Alt, p.AltSrc = int(alt.Int64), tracker.AltBaro
+		}
+		if gs.Valid {
+			p.GS, p.Known = gs.Float64, p.Known|tracker.KnownGS
+		}
+		if track.Valid {
+			p.Track, p.Known = track.Float64, p.Known|tracker.KnownTrack
+		}
+		if vr.Valid {
+			p.VR, p.Known = int(vr.Int64), p.Known|tracker.KnownVR
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ResumeFlights returns the flights the previous run left open and that are recent enough to continue
+// (Options.ResumeWithin), for tracker.Options.Resume.
+func (s *Store) ResumeFlights() []tracker.ResumedFlight { return s.resume }
 
 // LastFlightID is the highest flight ID in the database when it was opened; new flights continue after it.
 func (s *Store) LastFlightID() int64 { return s.lastID }

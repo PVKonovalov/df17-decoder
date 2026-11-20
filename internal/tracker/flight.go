@@ -61,6 +61,12 @@ type FlightSink interface {
 	Sample(flightID int64, s Sample)
 }
 
+// ResumedFlight is a flight the previous run left open, with its stored trail (oldest first).
+type ResumedFlight struct {
+	Info  FlightInfo
+	Trail []TrackPoint
+}
+
 type flight struct {
 	info    FlightInfo
 	trail   []TrackPoint
@@ -194,12 +200,22 @@ func (t *Tracker) expireFlights(now time.Time) {
 	}
 }
 
-// CloseFlights closes every open flight, for shutdown. Aircraft heard again start new flights.
+// CloseFlights closes every open flight. Aircraft heard again start new flights.
 func (t *Tracker) CloseFlights() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for icao, f := range t.flights {
 		t.closeFlight(icao, f)
+	}
+}
+
+// SyncFlights sends every open flight to the sink without closing it, for a shutdown after which the next run
+// resumes them (Options.Resume).
+func (t *Tracker) SyncFlights() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, f := range t.flights {
+		t.emitFlight(f)
 	}
 }
 

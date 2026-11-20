@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,6 +29,7 @@ type Options struct {
 	FlightGap        time.Duration    // a flight stays open this long after its aircraft expires; 0 = 10m
 	Flights          FlightSink       // optional; receives flights, track points and samples
 	LastFlightID     int64            // flight IDs continue after this one
+	Resume           []ResumedFlight  // flights left open by the previous run, continued when their aircraft is heard
 	Clock            func() time.Time // wall clock that ages entries between frames; time.Now when nil
 }
 
@@ -101,13 +104,23 @@ func New(opt Options) *Tracker {
 	if opt.FlightGap <= 0 {
 		opt.FlightGap = defaultFlightGap
 	}
-	return &Tracker{
+	t := &Tracker{
 		opt:          opt,
 		aircraft:     map[uint32]*entry{},
 		known:        NewKnownAddresses(opt.KnownAddressTTL),
 		flights:      map[uint32]*flight{},
 		nextFlightID: opt.LastFlightID,
 	}
+	for _, r := range opt.Resume {
+		icao, err := strconv.ParseUint(r.Info.ICAO, 16, 24)
+		if err != nil {
+			continue
+		}
+		info := r.Info
+		info.Closed = false
+		t.flights[uint32(icao)] = &flight{info: info, trail: trimTrail(slices.Clone(r.Trail), opt.TrailWindow)}
+	}
+	return t
 }
 
 // Now returns the current data time.

@@ -167,8 +167,8 @@ func TestOpen_MigratesV1(t *testing.T) {
 
 	s := open(t, file, Options{})
 	defer s.Close()
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != 4 {
-		t.Errorf("schema version %d, want 4", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != 5 {
+		t.Errorf("schema version %d, want 5", v)
 	}
 	if n := queryInt(t, s, `SELECT count(*) FROM sqlite_master WHERE name IN ('hourly', 'hourly_country', 'hourly_operator')`); n != 3 {
 		t.Errorf("%d rollup tables", n)

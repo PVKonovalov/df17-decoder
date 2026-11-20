@@ -249,14 +249,14 @@ func TestLiveSnapshots(t *testing.T) {
 	}
 	m.boundary(t0.Add(time.Hour), c(160, frames))
 	l := m.hour(t0)
-	if l == nil || l.messages != 60 || l.frames != 2750 || l.crcFailures != 275 || l.silentMinutes != 5 || l.signalDbfs != nil {
+	if l == nil || l.messages != 60 || l.frames != 2750 || l.crcFailures != 275 || l.silentMinutes != 5 || l.dbfs() != nil {
 		t.Errorf("full hour: %+v", l)
 	}
 	if m.hour(t0.Add(-time.Hour)) != nil {
 		t.Error("an hour without its start boundary has values")
 	}
 	if l := m.since(t0.Add(time.Hour), Counters{Messages: 170, Frames: frames + 5, SignalFrames: 2, SignalPower: 0.2}); l == nil ||
-		l.messages != 10 || l.signalDbfs == nil || math.Abs(*l.signalDbfs+10) > 1e-9 {
+		l.messages != 10 || l.dbfs() == nil || math.Abs(*l.dbfs()+10) > 1e-9 {
 		t.Errorf("current hour: %+v", l)
 	}
 
@@ -376,7 +376,7 @@ func TestRollup_FirstSeenOutlivesFlightRetention(t *testing.T) {
 func TestRollup_KeepsLiveValuesAndUpgradesOldHours(t *testing.T) {
 	s := rollupStore(t, Options{})
 	ctx := t.Context()
-	if err := s.rollupHour(ctx, t0, &liveHour{messages: 50, frames: 80, silentMinutes: 3, signalDbfs: new(-12.5)}, sizes{db: new(int64(9))}); err != nil {
+	if err := s.rollupHour(ctx, t0, &liveHour{messages: 50, frames: 80, silentMinutes: 3, signalFrames: 1, signalPower: math.Pow(10, -1.25)}, sizes{db: new(int64(9))}); err != nil {
 		t.Fatal(err)
 	}
 	// an hour of an older version: recomputed by the backfill, its live values kept
@@ -405,5 +405,71 @@ func TestRollup_KeepsLiveValuesAndUpgradesOldHours(t *testing.T) {
 		if _, ok := readHour(t, short, t0.Add(time.Duration(h)*time.Hour)); ok != want {
 			t.Errorf("with flight retention, hour %+d stored = %v", h, ok)
 		}
+	}
+}
+
+func TestLiveSnapshots_Restart(t *testing.T) {
+	c := func(msgs uint64) Counters { return Counters{Messages: msgs, Frames: msgs * 10} }
+
+	// run A sees the hour start and stops 20 minutes in; run B starts 2 minutes later
+	var a liveSnapshots
+	a.begin(t0.Add(-10*time.Minute), Counters{}, nil)
+	a.boundary(t0, c(100))
+	saved := a.unsaved(t0.Add(20*time.Minute), c(130))
+	if len(saved) != 1 || saved[t0.Unix()].l.messages != 30 {
+		t.Fatalf("saved at 20 min: %+v", saved)
+	}
+	var b liveSnapshots
+	b.begin(t0.Add(22*time.Minute), Counters{}, saved)
+	if l := b.since(t0, c(5)); l == nil || l.messages != 35 || l.silentMinutes != 2 {
+		t.Errorf("current hour after the restart: %+v", l)
+	}
+	b.boundary(t0.Add(time.Hour), c(50))
+	if l := b.hour(t0); l == nil || l.messages != 80 || l.frames != 800 || l.silentMinutes != 2 {
+		t.Errorf("hour across the restart: %+v", l)
+	}
+
+	// a restart between HH:00 and the rollup keeps the finished hour, and the new hour so far
+	saved = b.unsaved(t0.Add(time.Hour+2*time.Minute), c(60))
+	if len(saved) != 2 || saved[t0.Unix()].l.messages != 80 || saved[t0.Add(time.Hour).Unix()].l.messages != 10 {
+		t.Fatalf("saved before the rollup: %+v", saved)
+	}
+	var d liveSnapshots
+	d.begin(t0.Add(time.Hour+3*time.Minute), Counters{}, saved)
+	if l := d.hour(t0); l == nil || l.messages != 80 {
+		t.Errorf("finished hour from the previous run: %+v", l)
+	}
+	if l := d.since(t0.Add(time.Hour), c(1)); l == nil || l.messages != 11 || l.silentMinutes != 1 {
+		t.Errorf("new hour: %+v", l)
+	}
+
+	// down until after the hour: the rest of it was silent
+	var e liveSnapshots
+	e.begin(t0.Add(70*time.Minute), Counters{}, map[int64]carried{t0.Unix(): {l: liveHour{messages: 7}, end: t0.Add(40 * time.Minute)}})
+	if l := e.hour(t0); l == nil || l.messages != 7 || l.silentMinutes != 20 {
+		t.Errorf("hour ended by a shutdown: %+v", l)
+	}
+
+	// nothing carried (first start, or a crash): the hour started before this run stays unknown
+	var f liveSnapshots
+	f.begin(t0.Add(10*time.Minute), Counters{}, nil)
+	f.boundary(t0.Add(time.Hour), c(10))
+	if f.hour(t0) != nil || f.since(t0, c(10)) != nil {
+		t.Error("an hour this run joined late has values")
+	}
+}
+
+func TestLiveSaveLoad(t *testing.T) {
+	s := rollupStore(t, Options{})
+	parts := map[int64]carried{t0.Unix(): {l: liveHour{messages: 3, signalFrames: 2, signalPower: 0.5}, end: t0.Add(5 * time.Minute)}}
+	if err := s.saveLive(parts); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.loadLive()
+	if err != nil || len(got) != 1 || got[t0.Unix()].l != parts[t0.Unix()].l || !got[t0.Unix()].end.Equal(t0.Add(5*time.Minute)) {
+		t.Errorf("loaded %+v, %v", got, err)
+	}
+	if again, _ := s.loadLive(); len(again) != 0 {
+		t.Errorf("loading again: %+v", again)
 	}
 }

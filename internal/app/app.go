@@ -51,6 +51,7 @@ type Service struct {
 	cfg        config.Config
 	log        *slog.Logger
 	saveFailed bool // the last coverage save failed; only the coverage goroutine touches it
+	resume     bool // live source: open flights stay open over a restart and the next run resumes them
 	src        source.Source
 	opt        modes.Options
 	ln         net.Listener
@@ -104,10 +105,18 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		sink     tracker.FlightSink
 		lastID   int64
 		histFile string
+		resumed  []tracker.ResumedFlight
 	)
+	live := scheme == "tcp" || scheme == "beast"
 	if cfg.History.Enabled {
+		resumeWithin := time.Duration(0)
+		if live {
+			resumeWithin = cfg.Tracker.TTL.D() + cfg.History.FlightGap.D()
+		}
 		if hist, err = history.Open(history.Options{
 			File:           cfg.History.File,
+			ResumeWithin:   resumeWithin,
+			ResumeTrail:    cfg.Trails.Window.D(),
 			FlushInterval:  cfg.History.FlushInterval.D(),
 			Retention:      cfg.History.Retention.D(),
 			Logger:         log,
@@ -116,7 +125,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		}); err != nil {
 			return nil, err
 		}
-		sink, lastID = hist, hist.LastFlightID()
+		sink, lastID, resumed = hist, hist.LastFlightID(), hist.ResumeFlights()
 		histFile, _ = filepath.Abs(cfg.History.File)
 		log.Info("history enabled", "file", histFile, "lastFlight", lastID)
 	}
@@ -152,6 +161,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		History:  hist,
 		Tape:     rec,
 		TapeData: tapeData,
+		resume:   live,
 		Tracker: tracker.New(tracker.Options{
 			TTL:             cfg.Tracker.TTL.D(),
 			KnownAddressTTL: cfg.Tracker.KnownAddressTTL.D(),
@@ -169,6 +179,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 			FlightGap:        cfg.History.FlightGap.D(),
 			Flights:          sink,
 			LastFlightID:     lastID,
+			Resume:           resumed,
 		}),
 	}, nil
 }
@@ -354,7 +365,11 @@ func (s *Service) Run(ctx context.Context) error {
 	stopTape()
 	rec.Wait()
 	if s.History != nil {
-		s.Tracker.CloseFlights()
+		if s.resume {
+			s.Tracker.SyncFlights()
+		} else {
+			s.Tracker.CloseFlights()
+		}
 		stopHistory()
 		hist.Wait()
 		if err := s.History.Close(); err != nil {

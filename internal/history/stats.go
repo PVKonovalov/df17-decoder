@@ -42,7 +42,7 @@ func (r *HourRow) setLive(l *liveHour) {
 	}
 	r.Messages, r.Frames, r.CRCFailures = &l.messages, &l.frames, &l.crcFailures
 	r.FixedBitErrors, r.CPRRejected, r.Reconnects = &l.fixedBits, &l.cprRejected, &l.reconnects
-	r.SilentMinutes, r.SignalDBFS = &l.silentMinutes, l.signalDbfs
+	r.SilentMinutes, r.SignalDBFS = &l.silentMinutes, l.dbfs()
 }
 
 // AltitudeBand is the stored positions in one altitude band: "ground", "unknown", or MinFt up to MinFt + 5000 ft
