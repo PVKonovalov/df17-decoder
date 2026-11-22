@@ -1,5 +1,13 @@
-import { useEffect, useState, type Dispatch, type ReactNode } from 'react'
+import { useEffect, useState, type Dispatch, type ReactNode, type SyntheticEvent } from 'react'
 import { categoryText } from '../map/icons'
+import {
+  aircraftInfoUrl,
+  getReference,
+  putReference,
+  routeUrl,
+  type AircraftInfo,
+  type RouteInfo,
+} from '../api/reference'
 import type { Aircraft } from '../api/types'
 import type { Action } from '../state/reducer'
 import { urlWith } from '../state/url'
@@ -29,16 +37,34 @@ const autopilot = (modes: string[] | undefined) =>
   modes === undefined ? undefined : modes.map((m) => MODE_LABELS[m] ?? m).join(' · ') || 'none engaged'
 const time = (iso: string | undefined) => (iso === undefined ? undefined : new Date(iso).toLocaleTimeString())
 
-/** detailRows lists every known field of the aircraft as [label, value]; unknown fields are left out. */
-export function detailRows(a: Aircraft): [string, ReactNode][] {
+/** Reference is the user's data for the aircraft and its callsign: undefined while unknown, null when none. */
+export interface Reference {
+  aircraft?: AircraftInfo | null | undefined
+  route?: RouteInfo | null | undefined
+}
+
+const typeText = (i: AircraftInfo | null | undefined) =>
+  [i?.typeCode, i?.typeName].filter((v) => v !== undefined).join(' · ') || undefined
+const routeText = (r: RouteInfo | null | undefined) =>
+  r ? `${r.origin ?? '?'} → ${r.destination ?? '?'}` : undefined
+
+/**
+ * detailRows lists every known field of the aircraft, with the user's reference data ref, as [label, value];
+ * unknown fields are left out.
+ */
+export function detailRows(a: Aircraft, ref: Reference = {}): [string, ReactNode][] {
   const rows: [string, ReactNode | undefined][] = [
     ['ICAO', a.icao],
     ['Callsign', a.callsign],
+    ['Route', routeText(ref.route)],
+    ['Registration', ref.aircraft?.registration],
+    ['Aircraft type', typeText(ref.aircraft)],
+    ['Operator', ref.aircraft?.operator],
     ['Squawk', a.squawk],
     ['Emergency', a.emergency !== undefined && a.emergency !== 'none' ? a.emergency : undefined],
     ['Country', a.country],
     ['Category', categoryText(a.category)],
-    ['Type', a.adsb ? `ADS-B${a.adsbVersion === undefined ? '' : ` v${a.adsbVersion}`}` : 'Mode S only'],
+    ['Transponder', a.adsb ? `ADS-B${a.adsbVersion === undefined ? '' : ` v${a.adsbVersion}`}` : 'Mode S only'],
     ['Altitude (baro)', ft(a.altBaro)],
     ['Altitude (GNSS)', ft(a.altGnss)],
     ['On ground', a.onGround === undefined ? undefined : a.onGround ? 'yes' : 'no'],
@@ -139,27 +165,193 @@ function CopyLinkButton({ moment }: { moment: Moment | undefined }) {
   )
 }
 
+/**
+ * useReference loads the user's entries for icao and callsign when enabled, again only when either changes, and
+ * returns them with setters for saved values.
+ */
+function useReference(icao: string, callsign: string | undefined, enabled: boolean) {
+  const [info, setInfo] = useState<{ key: string; v: AircraftInfo | null } | null>(null)
+  const [route, setRoute] = useState<{ key: string; v: RouteInfo | null } | null>(null)
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+    const ctl = new AbortController()
+    getReference<AircraftInfo>(aircraftInfoUrl(icao), ctl.signal)
+      .then((v) => {
+        setInfo({ key: icao, v })
+      })
+      .catch(() => undefined)
+    return () => {
+      ctl.abort()
+    }
+  }, [icao, enabled])
+  useEffect(() => {
+    if (!enabled || callsign === undefined) {
+      return
+    }
+    const ctl = new AbortController()
+    getReference<RouteInfo>(routeUrl(callsign), ctl.signal)
+      .then((v) => {
+        setRoute({ key: callsign, v })
+      })
+      .catch(() => undefined)
+    return () => {
+      ctl.abort()
+    }
+  }, [callsign, enabled])
+  const current: Reference = {
+    aircraft: info?.key === icao ? info.v : undefined,
+    route: callsign !== undefined && route?.key === callsign ? route.v : undefined,
+  }
+  const saved = (a: AircraftInfo | null, r: RouteInfo | null) => {
+    setInfo({ key: icao, v: a })
+    if (callsign !== undefined) {
+      setRoute({ key: callsign, v: r })
+    }
+  }
+  return [current, saved] as const
+}
+
+const AIRCRAFT_FIELDS = [
+  ['registration', 'Registration', 'PH-BXA'],
+  ['typeCode', 'Type code', 'B738'],
+  ['typeName', 'Type name', 'Boeing 737-800'],
+  ['operator', 'Operator', 'KLM'],
+] as const
+const ROUTE_FIELDS = [
+  ['origin', 'From', 'EHAM Amsterdam'],
+  ['destination', 'To', 'LEMD Madrid'],
+] as const
+
+/**
+ * ReferenceEditor edits the user's entries: the airframe by ICAO address and the route by callsign (only when the
+ * aircraft has one). Emptying every field of an entry deletes it.
+ */
+function ReferenceEditor({
+  icao,
+  callsign,
+  current,
+  onSaved,
+  onClose,
+}: {
+  icao: string
+  callsign: string | undefined
+  current: Reference
+  onSaved: (a: AircraftInfo | null, r: RouteInfo | null) => void
+  onClose: () => void
+}) {
+  const [aircraft, setAircraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(AIRCRAFT_FIELDS.map(([k]) => [k, current.aircraft?.[k] ?? ''])),
+  )
+  const [route, setRoute] = useState<Record<string, string>>(() =>
+    Object.fromEntries(ROUTE_FIELDS.map(([k]) => [k, current.route?.[k] ?? ''])),
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = (e: SyntheticEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    void Promise.all([
+      putReference<AircraftInfo>(aircraftInfoUrl(icao), aircraft),
+      callsign === undefined ? Promise.resolve(null) : putReference<RouteInfo>(routeUrl(callsign), route),
+    ])
+      .then(([a, r]) => {
+        onSaved(a, r)
+        onClose()
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'save failed')
+        setBusy(false)
+      })
+  }
+  const input = (
+    values: Record<string, string>,
+    set: (v: Record<string, string>) => void,
+    [key, label, placeholder]: readonly [string, string, string],
+  ) => (
+    <label key={key}>
+      <span>{label}</span>
+      <input
+        value={values[key] ?? ''}
+        placeholder={placeholder}
+        maxLength={64}
+        onChange={(e) => {
+          set({ ...values, [key]: e.target.value })
+        }}
+      />
+    </label>
+  )
+  return (
+    <form className="detail-form" aria-label="Edit reference data" onSubmit={submit}>
+      <fieldset disabled={busy}>
+        <legend>Aircraft {icao}</legend>
+        {AIRCRAFT_FIELDS.map((f) => input(aircraft, setAircraft, f))}
+      </fieldset>
+      {callsign === undefined ? (
+        <p className="detail-form-note">The route is stored by callsign, which this aircraft hasn't sent yet.</p>
+      ) : (
+        <fieldset disabled={busy}>
+          <legend>Route {callsign}</legend>
+          {ROUTE_FIELDS.map((f) => input(route, setRoute, f))}
+        </fieldset>
+      )}
+      {error !== null && <p className="detail-form-error">{error}</p>}
+      <div className="detail-form-buttons">
+        <button type="submit" disabled={busy}>
+          Save
+        </button>
+        <button type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 /** Moment is a playback position for links. */
 export interface Moment {
   t: string
   speed: number
 }
 
-/** DetailPanel shows all known fields of the selected aircraft; moment, in playback, goes into "Copy link". */
+/**
+ * DetailPanel shows all known fields of the selected aircraft; moment, in playback, goes into "Copy link". With
+ * reference (the server keeps history), it also shows and edits the user's registration, type and route.
+ */
 export function DetailPanel({
   aircraft,
   dispatch,
   moment,
+  reference = false,
 }: {
   aircraft: Aircraft
   dispatch: Dispatch<Action>
   moment?: Moment | undefined
+  reference?: boolean
 }) {
+  const [current, saved] = useReference(aircraft.icao, aircraft.callsign, reference)
+  const [editing, setEditing] = useState<string | null>(null)
+  const editKey = `${aircraft.icao}/${aircraft.callsign ?? ''}`
   return (
     <aside className={`detail${isEmergency(aircraft) ? ' emergency' : ''}`} aria-label="Aircraft details">
       <header className="detail-head">
         <h2>{aircraft.callsign ?? aircraft.icao}</h2>
         <CopyLinkButton moment={moment} />
+        {reference && (
+          <button
+            type="button"
+            className="detail-copy detail-edit"
+            title="Enter the registration, type and route"
+            aria-pressed={editing === editKey}
+            onClick={() => {
+              setEditing(editing === editKey ? null : editKey)
+            }}
+          >
+            Edit
+          </button>
+        )}
         <button
           type="button"
           className="detail-close"
@@ -171,8 +363,20 @@ export function DetailPanel({
           ×
         </button>
       </header>
+      {editing === editKey && (
+        <ReferenceEditor
+          key={editKey}
+          icao={aircraft.icao}
+          callsign={aircraft.callsign}
+          current={current}
+          onSaved={saved}
+          onClose={() => {
+            setEditing(null)
+          }}
+        />
+      )}
       <dl className="detail-list">
-        {detailRows(aircraft).map(([label, value]) => (
+        {detailRows(aircraft, current).map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
             <dd>{value}</dd>

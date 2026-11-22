@@ -83,6 +83,12 @@ var migrations = []string{
 		messages INTEGER NOT NULL, frames INTEGER NOT NULL, crc_failures INTEGER NOT NULL,
 		fixed_bit_errors INTEGER NOT NULL, cpr_rejected INTEGER NOT NULL, reconnects INTEGER NOT NULL,
 		silent_minutes INTEGER NOT NULL, signal_frames INTEGER NOT NULL, signal_power REAL NOT NULL);`,
+
+	// user-entered reference data (reference.go), keyed by the flights' icao and callsign
+	`CREATE TABLE aircraft_info (icao TEXT PRIMARY KEY, registration TEXT, type_code TEXT, type_name TEXT,
+		operator TEXT, updated INTEGER NOT NULL) WITHOUT ROWID;
+	CREATE TABLE routes (callsign TEXT PRIMARY KEY, origin TEXT, destination TEXT, updated INTEGER NOT NULL)
+		WITHOUT ROWID;`,
 }
 
 // SchemaVersion is the schema version this build writes.

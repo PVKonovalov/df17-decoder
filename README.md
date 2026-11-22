@@ -149,6 +149,8 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
 | `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
 | `GET /api/history/timeline?from=&to=&bucket=1m` | Flights active per bucket as `[ADS-B, Mode-S only]` (at most 2000 buckets) and emergency squawk events: the timeline's density strip |
+| `GET\|PUT\|DELETE /api/reference/aircraft/{icao}` | Your own data for an airframe: `registration`, `typeCode`, `typeName`, `operator` (each up to 64 characters). GET returns 404 when there is none, PUT returns the entry (204 and deletes it when every field is empty). 503 without history |
+| `GET\|PUT\|DELETE /api/reference/routes/{callsign}` | Your own route for a callsign (1–8 letters or digits): `origin`, `destination`, the same way |
 | `GET /api/storage` | Disk use of the state directory: volume size and free space, tape/database/other bytes, growth per day, steady-state sizes, days until full and until the disk guard, the oldest tape/flight/rollup, guard flags. Cached for 60 s |
 | `GET /api/stats/hourly?from=&to=` | Hourly rollups (aircraft ADS-B / Mode-S only, flights started, positions, messages, max range and bearing, sizes, receiver counters), plus the current hour so far (`partial`). Default the last 24 h; at most 400 days, clamped to `stats.retention` |
 | `GET /api/stats/countries?from=&to=&limit=` | Aircraft-hours per country of registration, largest first (`limit` 20, max 500) |
@@ -249,6 +251,11 @@ counted) if the database can't keep up. `/api/stats` then reports `historyFlight
 shutdown leaves the open flights open, and the next start continues each one whose aircraft was heard within
 `tracker.ttl` + `history.flightGap` (with its trail on the map), so a restart doesn't split flights. Older open
 flights, and all of them with a file or tape source, are closed at start; a crash is handled the same way. The schema version is kept in the database and upgraded automatically.
+
+**Reference data.** Mode S doesn't carry the aircraft type or the route, so you enter them yourself, with
+**Edit** in the detail panel. They are kept in the same database, in `aircraft_info` (by ICAO address:
+registration, type code and name, operator) and `routes` (by callsign: from and to), which share their keys
+with `flights.icao` and `flights.callsign`. Retention never deletes them, and no outside service is used.
 
 **Disk use.** A stored point takes about 84 bytes including indexes. An aircraft in cruise stores about one point
 per 5 s (about 1.5 MB per day), more while turning or climbing, so count roughly 2 MB per day for every aircraft
@@ -410,7 +417,9 @@ there's nothing else to deploy.
   their map marker pulses briefly when it appears.
 - **Selection:** clicking a marker or a row highlights the aircraft in both, opens a detail panel with every
   known field (including the selected altitude and heading, altimeter setting, autopilot modes, roll and
-  Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft.
+  Mach), and links to ADS-B Exchange. Clicking a row pans the map to the aircraft. With history enabled, the
+  panel also shows the route, registration, aircraft type and operator you entered, and **Edit** changes them
+  (see [Reference data](#flight-history)).
 - **Panels:** the **Table** and **Legend** switches in the header hide the aircraft table (the map takes the
   full width) and the map legend with its color and coverage selectors. Each browser remembers the choice.
 - **Statistics:** the header link opens the [Statistics](#statistics) page.

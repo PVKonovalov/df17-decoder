@@ -481,6 +481,83 @@ body {
   color: var(--link);
 }
 
+.detail-edit {
+  margin-left: 6px;
+}
+
+.detail-edit[aria-pressed='true'] {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.detail-form {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.detail-form fieldset {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.detail-form legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.detail-form label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-form label span {
+  color: var(--muted);
+}
+
+.detail-form input {
+  font: inherit;
+  width: 150px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.detail-form-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.detail-form-error {
+  margin: 0;
+  color: var(--bad);
+}
+
+.detail-form-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.detail-form-buttons button {
+  font: inherit;
+  padding: 2px 10px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
 /* Map */
 
 .map-wrap,

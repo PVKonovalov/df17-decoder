@@ -65,7 +65,14 @@ export function App() {
       >
         <div className="map-pane">
           <LiveMap state={state} dispatch={dispatch} showLegend={showLegend} colorMode={chosenMode} onColorMode={setColorMode} />
-          {selected && <DetailPanel aircraft={selected} dispatch={dispatch} moment={moment} />}
+          {selected && (
+            <DetailPanel
+              aircraft={selected}
+              dispatch={dispatch}
+              moment={moment}
+              reference={state.stats?.historyFlightsOpen !== undefined}
+            />
+          )}
         </div>
         {showTable && (
           <>

@@ -25,13 +25,13 @@ describe('DetailPanel', () => {
     expect(labels).not.toContain('Callsign')
     expect(labels).not.toContain('Position')
     expect(Object.fromEntries(detailRows(minimal))['Altitude (baro)']).toBe('0 ft')
-    expect(Object.fromEntries(detailRows(minimal)).Type).toBe('Mode S only')
+    expect(Object.fromEntries(detailRows(minimal)).Transponder).toBe('Mode S only')
   })
 
   it('shows every fixture field group for a fully known aircraft', () => {
     const rows = Object.fromEntries(detailRows(fixture))
     expect(rows.Callsign).toBe('ELY001')
-    expect(rows.Type).toBe('ADS-B v2')
+    expect(rows.Transponder).toBe('ADS-B v2')
     expect(rows.Emergency).toBe('general')
     expect(rows['Vertical rate']).toBe('↓ 640 ft/min')
     expect(rows.RSSI).toBe('-12.3 dBFS')
@@ -58,6 +58,67 @@ describe('DetailPanel', () => {
     expect(trackerUrl('738ABC')).toBe('https://globe.adsbexchange.com/?icao=738abc')
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
     expect(dispatch).toHaveBeenCalledWith({ type: 'clearSelection' })
+  })
+})
+
+describe('reference data', () => {
+  const info = { icao: '738ABC', registration: '4X-EKA', typeCode: 'B738', typeName: 'Boeing 737-800', updated: '2026-11-22T10:00:00Z' }
+  const route = { callsign: 'ELY001', origin: 'LLBG', destination: 'EGLL', updated: '2026-11-22T10:00:00Z' }
+
+  it('adds the registration, type and route rows when known', () => {
+    const rows = Object.fromEntries(detailRows(fixture, { aircraft: info, route }))
+    expect(rows.Registration).toBe('4X-EKA')
+    expect(rows['Aircraft type']).toBe('B738 · Boeing 737-800')
+    expect(rows.Route).toBe('LLBG → EGLL')
+    expect(Object.fromEntries(detailRows(fixture, { route: { callsign: 'ELY001', destination: 'EGLL', updated: '' } })).Route).toBe('? → EGLL')
+    const none = detailRows(fixture, { aircraft: null, route: null }).map(([l]) => l)
+    expect(none).not.toContain('Registration')
+    expect(none).not.toContain('Route')
+  })
+
+  it('loads the entries, and saves edits by ICAO and callsign', async () => {
+    const calls: [string, RequestInit | undefined][] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        calls.push([url, init])
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(init.body as string) as Record<string, string>
+          const key = url.includes('/routes/') ? { callsign: 'ELY001' } : { icao: '738ABC' }
+          return Promise.resolve(new Response(JSON.stringify({ ...key, ...body, updated: '' }), { status: 200 }))
+        }
+        if (url.includes('/aircraft/')) {
+          return Promise.resolve(new Response(JSON.stringify(info), { status: 200 }))
+        }
+        return Promise.resolve(new Response('{"error":"no reference entry"}', { status: 404 }))
+      }),
+    )
+    render(<DetailPanel aircraft={fixture} dispatch={vi.fn()} reference />)
+    await waitFor(() => {
+      expect(screen.getByText('B738 · Boeing 737-800')).toBeTruthy()
+    })
+    expect(calls.map(([u]) => u).sort()).toEqual(['/api/reference/aircraft/738ABC', '/api/reference/routes/ELY001'])
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText<HTMLInputElement>('Registration').value).toBe('4X-EKA')
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: 'LLBG' } })
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: 'EGLL' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(screen.getByText('LLBG → EGLL')).toBeTruthy()
+    })
+    const put = calls.find(([u, i]) => i?.method === 'PUT' && u.includes('/routes/'))
+    expect(JSON.parse(put?.[1]?.body as string)).toEqual({ origin: 'LLBG', destination: 'EGLL' })
+    expect(screen.queryByRole('form', { name: 'Edit reference data' })).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('has no Edit button and fetches nothing without history', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<DetailPanel aircraft={fixture} dispatch={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 })
 
