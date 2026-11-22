@@ -100,6 +100,35 @@ describe('selection', () => {
     expect(s.selected).toBeNull()
   })
 
+  it('keeps an aircraft being edited selected after it disappears, with its last data', () => {
+    let s = snap(initialState, ac('738001'), ac('738002', { callsign: 'ELY1' }))
+    s = reducer(s, { type: 'select', icao: '738002' })
+    expect(reducer(s, { type: 'editing', icao: '738001' }).editing).toBeNull()
+    s = reducer(s, { type: 'editing', icao: '738002' })
+
+    s = snap(s, ac('738001'))
+    expect([s.selected, s.editing, s.held?.callsign]).toEqual(['738002', '738002', 'ELY1'])
+    s = snap(s, ac('738001'))
+    expect(s.held?.callsign).toBe('ELY1')
+
+    const back = snap(s, ac('738001'), ac('738002', { callsign: 'ELY2' }))
+    expect([back.selected, back.held]).toEqual(['738002', null])
+    expect(reducer(back, { type: 'editing', icao: null }).selected).toBe('738002')
+
+    s = reducer(s, { type: 'editing', icao: null })
+    expect([s.selected, s.editing, s.held]).toEqual([null, null, null])
+  })
+
+  it('ends editing when another aircraft is selected or the selection is cleared', () => {
+    let s = snap(initialState, ac('738001'), ac('738002'))
+    s = reducer(reducer(s, { type: 'select', icao: '738002' }), { type: 'editing', icao: '738002' })
+    expect(reducer(s, { type: 'select', icao: '738002', pan: true }).editing).toBe('738002')
+    expect(reducer(s, { type: 'select', icao: '738001' }).editing).toBeNull()
+    expect(reducer(s, { type: 'clearSelection' }).editing).toBeNull()
+    s = snap(reducer(s, { type: 'clearSelection' }), ac('738001'))
+    expect(s.selected).toBeNull()
+  })
+
   it('requests a pan only for selections that ask for it', () => {
     let s = snap(initialState, ac('738001'))
     s = reducer(s, { type: 'select', icao: '738001' })

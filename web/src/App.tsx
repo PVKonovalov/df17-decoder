@@ -50,7 +50,8 @@ export function App() {
   const [chosenMode, setColorMode] = useColorMode()
   const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
   const colorMode = hasSignal ? chosenMode : 'altitude'
-  const selected = state.selected === null ? undefined : state.aircraft.get(state.selected)
+  const live = state.selected === null ? undefined : state.aircraft.get(state.selected)
+  const selected = live ?? (state.held?.icao === state.selected ? state.held : null) ?? undefined
 
   return (
     <div className={moment ? 'app playback' : 'app'}>
@@ -71,6 +72,8 @@ export function App() {
               dispatch={dispatch}
               moment={moment}
               reference={state.stats?.historyFlightsOpen !== undefined}
+              editing={state.editing === selected.icao}
+              gone={live === undefined}
             />
           )}
         </div>

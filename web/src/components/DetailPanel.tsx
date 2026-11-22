@@ -318,22 +318,29 @@ export interface Moment {
 
 /**
  * DetailPanel shows all known fields of the selected aircraft; moment, in playback, goes into "Copy link". With
- * reference (the server keeps history), it also shows and edits the user's registration, type and route.
+ * reference (the server keeps history), it also shows and edits the user's registration, type and route; editing
+ * is kept in the reducer, so the panel stays while the aircraft is gone (shown with its last data).
  */
 export function DetailPanel({
   aircraft,
   dispatch,
   moment,
   reference = false,
+  editing = false,
+  gone = false,
 }: {
   aircraft: Aircraft
   dispatch: Dispatch<Action>
   moment?: Moment | undefined
   reference?: boolean
+  editing?: boolean
+  gone?: boolean
 }) {
   const [current, saved] = useReference(aircraft.icao, aircraft.callsign, reference)
-  const [editing, setEditing] = useState<string | null>(null)
   const editKey = `${aircraft.icao}/${aircraft.callsign ?? ''}`
+  const setEditing = (on: boolean) => {
+    dispatch({ type: 'editing', icao: on ? aircraft.icao : null })
+  }
   return (
     <aside className={`detail${isEmergency(aircraft) ? ' emergency' : ''}`} aria-label="Aircraft details">
       <header className="detail-head">
@@ -344,9 +351,9 @@ export function DetailPanel({
             type="button"
             className="detail-copy detail-edit"
             title="Enter the registration, type and route"
-            aria-pressed={editing === editKey}
+            aria-pressed={editing}
             onClick={() => {
-              setEditing(editing === editKey ? null : editKey)
+              setEditing(!editing)
             }}
           >
             Edit
@@ -363,7 +370,12 @@ export function DetailPanel({
           ×
         </button>
       </header>
-      {editing === editKey && (
+      {gone && (
+        <p className="detail-gone">
+          No longer received · last seen {new Date(aircraft.lastSeen).toLocaleTimeString()}
+        </p>
+      )}
+      {reference && editing && (
         <ReferenceEditor
           key={editKey}
           icao={aircraft.icao}
@@ -371,7 +383,7 @@ export function DetailPanel({
           current={current}
           onSaved={saved}
           onClose={() => {
-            setEditing(null)
+            setEditing(false)
           }}
         />
       )}

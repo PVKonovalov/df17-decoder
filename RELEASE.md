@@ -57,3 +57,4 @@
 - 2026-11-20: Bolder aircraft icons (helicopter, UAV, light, glider); the white outline is one layer under the whole icon, so it no longer cuts thin parts.
 - 2026-11-20: Restart keeps history whole: open flights resume after a restart (live sources), and the unfinished hours' message/receiver counters are saved on shutdown (schema v5).
 - 2026-11-22: Reference data entered by the user (schema v6: aircraft_info by ICAO, routes by callsign), /api/reference endpoints; detail panel shows and edits route, registration, type.
+- 2026-11-22: The detail panel stays open while its reference data is edited, even when the aircraft leaves the table; it shows its last data marked 'No longer received'.

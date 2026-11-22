@@ -18,6 +18,8 @@ export interface State {
   trails: ReadonlyMap<string, readonly TrailPoint[]> // from the server's track buffer, by ICAO
   trailWindowMs: number // data time kept before each trail's newest point
   selected: string | null
+  editing: string | null // the aircraft whose reference data is being edited; its selection outlives it
+  held: Aircraft | null // last known data of the edited aircraft after it left the snapshots
   pendingSelect: string | null // aircraft to select once a snapshot contains it (from a shared link)
   pendingAfterSeek: boolean // pendingSelect waits for the snapshots after a seek (the next full trails message)
   panSeq: number // incremented when the map should pan to the selection (selection from the table)
@@ -41,6 +43,7 @@ export type Action =
   | { type: 'select'; icao: string; pan?: boolean }
   | { type: 'clearSelection' }
   | { type: 'selectAfterSeek'; icao: string }
+  | { type: 'editing'; icao: string | null }
 
 export const initialState: State = {
   conn: 'connecting',
@@ -53,6 +56,8 @@ export const initialState: State = {
   trails: new Map(),
   trailWindowMs: DEFAULT_TRAIL_WINDOW_MS,
   selected: null,
+  editing: null,
+  held: null,
   pendingSelect: null,
   pendingAfterSeek: false,
   panSeq: 0,
@@ -105,6 +110,7 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         selected: action.icao,
+        ...(action.icao !== state.selected && { editing: null, held: null }),
         pendingSelect: null,
         pendingAfterSeek: false,
         panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq,
@@ -112,15 +118,31 @@ export function reducer(state: State, action: Action): State {
     case 'clearSelection':
       return state.selected === null && state.pendingSelect === null
         ? state
-        : { ...state, selected: null, pendingSelect: null, pendingAfterSeek: false }
+        : { ...state, selected: null, editing: null, held: null, pendingSelect: null, pendingAfterSeek: false }
     case 'selectAfterSeek':
-      return { ...state, selected: null, pendingSelect: action.icao, pendingAfterSeek: true }
+      return {
+        ...state,
+        selected: null,
+        editing: null,
+        held: null,
+        pendingSelect: action.icao,
+        pendingAfterSeek: true,
+      }
+    case 'editing':
+      if (action.icao !== null) {
+        return action.icao === state.selected ? { ...state, editing: action.icao } : state
+      }
+      // the edit ends: an aircraft that is no longer received closes with it
+      return state.held === null
+        ? { ...state, editing: null }
+        : { ...state, editing: null, held: null, selected: null }
   }
 }
 
 /**
  * applySnapshot replaces the aircraft table with a full snapshot and drops trails and the selection of aircraft
- * that are gone. A pending selection is applied (with a pan when the aircraft has a position) once the aircraft is
+ * that are gone, except an aircraft being edited: its selection stays, with its last known data in held. A pending
+ * selection is applied (with a pan when the aircraft has a position) once the aircraft is
  * in the snapshot.
  */
 function applySnapshot(state: State, list: Aircraft[]): State {
@@ -140,12 +162,20 @@ function applySnapshot(state: State, list: Aircraft[]): State {
       aircraft,
       trails,
       selected: pending.icao,
+      editing: null,
+      held: null,
       pendingSelect: null,
       panSeq: pending.hasPosition ? state.panSeq + 1 : state.panSeq,
     }
   }
-  const selected = state.selected !== null && aircraft.has(state.selected) ? state.selected : null
-  return { ...state, aircraft, trails, selected }
+  if (state.selected === null || aircraft.has(state.selected)) {
+    return { ...state, aircraft, trails, held: null }
+  }
+  if (state.editing === state.selected) {
+    const held = state.aircraft.get(state.selected) ?? state.held
+    return { ...state, aircraft, trails, held }
+  }
+  return { ...state, aircraft, trails, selected: null, editing: null, held: null }
 }
 
 /** applyTrailPoints appends new server points to the trails; the state is unchanged when nothing is new. */

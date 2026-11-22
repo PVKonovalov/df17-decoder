@@ -93,12 +93,15 @@ describe('reference data', () => {
         return Promise.resolve(new Response('{"error":"no reference entry"}', { status: 404 }))
       }),
     )
-    render(<DetailPanel aircraft={fixture} dispatch={vi.fn()} reference />)
+    const dispatch = vi.fn<(a: Action) => void>()
+    const { rerender } = render(<DetailPanel aircraft={fixture} dispatch={dispatch} reference />)
     await waitFor(() => {
       expect(screen.getByText('B738 · Boeing 737-800')).toBeTruthy()
     })
     expect(calls.map(([u]) => u).sort()).toEqual(['/api/reference/aircraft/738ABC', '/api/reference/routes/ELY001'])
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(dispatch).toHaveBeenLastCalledWith({ type: 'editing', icao: '738ABC' })
+    rerender(<DetailPanel aircraft={fixture} dispatch={dispatch} reference editing />)
     expect(screen.getByLabelText<HTMLInputElement>('Registration').value).toBe('4X-EKA')
     fireEvent.change(screen.getByLabelText('From'), { target: { value: 'LLBG' } })
     fireEvent.change(screen.getByLabelText('To'), { target: { value: 'EGLL' } })
@@ -108,7 +111,15 @@ describe('reference data', () => {
     })
     const put = calls.find(([u, i]) => i?.method === 'PUT' && u.includes('/routes/'))
     expect(JSON.parse(put?.[1]?.body as string)).toEqual({ origin: 'LLBG', destination: 'EGLL' })
-    expect(screen.queryByRole('form', { name: 'Edit reference data' })).toBeNull()
+    expect(dispatch).toHaveBeenLastCalledWith({ type: 'editing', icao: null })
+    vi.unstubAllGlobals()
+  })
+
+  it('says when the aircraft is no longer received', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+    render(<DetailPanel aircraft={fixture} dispatch={vi.fn()} reference editing gone />)
+    expect(screen.getByText(/^No longer received · last seen /)).toBeTruthy()
+    expect(screen.getByRole('form', { name: 'Edit reference data' })).toBeTruthy()
     vi.unstubAllGlobals()
   })
 
