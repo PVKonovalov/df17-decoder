@@ -214,8 +214,63 @@ func TestDecode_OperationalStatus(t *testing.T) {
 	}
 }
 
+func TestDecode_OperationalStatusAccuracy(t *testing.T) {
+	// TC ST | 32 bits capability/mode | ver(3) NIC-A(1) NACp(4) GVA(2) SIL(2)
+	frame := func(ver uint64) []byte {
+		return makeES(0x738062, me([2]uint64{31, 5}, [2]uint64{0, 3}, [2]uint64{0, 32}, [2]uint64{ver, 3},
+			[2]uint64{1, 1}, [2]uint64{9, 4}, [2]uint64{0, 2}, [2]uint64{3, 2}))
+	}
+	m, err := Decode(frame(2), time.Time{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := m.OperationalStatus; s == nil || !s.NICA || !ptrEq(s.NACp, 9) || !ptrEq(s.SIL, 3) {
+		t.Errorf("v2: got %+v", s)
+	}
+	m, err = Decode(frame(0), time.Time{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := m.OperationalStatus; s == nil || s.NICA || s.NACp != nil || s.SIL != nil {
+		t.Errorf("v0: got %+v", s)
+	}
+}
+
+func TestDecode_NoPosition(t *testing.T) {
+	// 38000 ft: N = (38000+1000)/25 = 1560, Q bit set
+	const alt38000 = 1560>>4<<5 | 1<<4 | 1560&0xF
+	m, err := Decode(makeES(0x738062, me([2]uint64{0, 5}, [2]uint64{0, 3}, [2]uint64{alt38000, 12})), time.Time{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.TC != 0 || m.NoPosition == nil || !ptrEq(m.NoPosition.Altitude, 38000) || m.AirbornePosition != nil {
+		t.Errorf("tc=%d no position %+v", m.TC, m.NoPosition)
+	}
+	m, err = Decode(makeES(0x738062, 0), time.Time{}, Options{})
+	if err != nil || m.NoPosition == nil || m.NoPosition.Altitude != nil {
+		t.Errorf("empty TC 0: %+v, %v", m.NoPosition, err)
+	}
+}
+
+func TestNIC(t *testing.T) {
+	for _, tt := range []struct {
+		tc   int
+		a, b bool
+		want int
+		ok   bool
+	}{
+		{9, false, false, 11, true}, {11, true, false, 8, true}, {11, true, true, 9, true}, {12, false, false, 7, true},
+		{16, true, true, 3, true}, {16, false, true, 2, true}, {18, false, false, 0, true}, {22, false, false, 0, true},
+		{7, true, false, 9, true}, {8, false, false, 0, true}, {19, false, false, 0, false}, {0, false, false, 0, false},
+	} {
+		if got, ok := NIC(tt.tc, tt.a, tt.b); got != tt.want || ok != tt.ok {
+			t.Errorf("NIC(%d, %v, %v) = %d %v, want %d %v", tt.tc, tt.a, tt.b, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
 func TestDecode_UnsupportedTypeCodes(t *testing.T) {
-	for _, tc := range []uint64{0, 23, 24, 27, 29, 30} {
+	for _, tc := range []uint64{23, 24, 27, 29, 30} {
 		if _, err := Decode(makeES(1, me([2]uint64{tc, 5})), time.Time{}, Options{}); !errors.Is(err, ErrUnsupportedTC) {
 			t.Errorf("TC %d: err = %v, want ErrUnsupportedTC", tc, err)
 		}

@@ -30,6 +30,7 @@ type options struct {
 	arrivals     float64 // fraction of aircraft that appear during the capture rather than at its start
 	departures   float64 // fraction of aircraft that stop transmitting before the end
 	taxiing      int     // extra aircraft taxiing at an airfield near the receiver (surface positions)
+	jammed       float64 // fraction of ADS-B aircraft that lose GNSS for a while (degraded, then TC 0)
 	beast        bool    // write Beast binary with a distance-dependent signal level instead of AVR text
 }
 
@@ -54,6 +55,20 @@ type aircraft struct {
 	phase      int // spreads periodic messages over ticks
 	identEvery int // ticks
 	start, end int // transmits on ticks [start, end)
+	jamFrom    int // GNSS degraded on ticks [jamFrom, jamLost), lost on [jamLost, jamTo); all 0 when never jammed
+	jamLost    int
+	jamTo      int
+}
+
+// gnss returns the position type code and NACp the aircraft sends on tick n, and false while it has no position.
+func (a *aircraft) gnss(n int) (tc, nacp uint64, ok bool) {
+	switch {
+	case n >= a.jamLost && n < a.jamTo:
+		return 0, 0, false
+	case n >= a.jamFrom && n < a.jamTo:
+		return 16, 4, true
+	}
+	return 11, 9, true
 }
 
 // categories is the mix of emitter categories of airborne ADS-B aircraft, by weight.
@@ -165,12 +180,28 @@ func newFleet(o options, r *rand.Rand) []*aircraft {
 		}
 		fleet[i] = a
 	}
+	for _, a := range fleet[min(1, len(fleet)):] { // the emergency aircraft keeps its position
+		if a.adsb && r.Float64() < o.jammed {
+			a.jam(r, max(a.start, ticks/10), ticks)
+		}
+	}
 	if len(fleet) > 0 && o.emergencySqk != "" {
 		e := fleet[0]
 		e.adsb, e.emergency, e.squawk, e.callsign, e.category = true, true, o.emergencySqk, "ELY7700", "A3"
 		e.start, e.end = 0, ticks
 	}
 	return append(fleet, newTaxiing(o, r, seen)...)
+}
+
+// jam degrades the aircraft's GNSS for 40 s from a random tick in [from, to) on, then loses it for 2–4 minutes.
+func (a *aircraft) jam(r *rand.Rand, from, to int) {
+	if from >= to {
+		return
+	}
+	perSec := 2 // ticks per second at the 0.5 s step
+	a.jamFrom = from + r.IntN(max(1, (to-from)/2))
+	a.jamLost = a.jamFrom + 40*perSec
+	a.jamTo = a.jamLost + (120+r.IntN(120))*perSec
 }
 
 // newTaxiing places o.taxiing aircraft on an airfield 6 NM north-east of the receiver, moving at taxi speeds.
@@ -279,8 +310,13 @@ func (a *aircraft) frames(n int) [][]byte {
 		return out
 	}
 	if a.adsb {
-		out = append(out, airbornePosition(a.icao, a.lat, a.lon, a.alt, a.odd))
-		a.odd = !a.odd
+		tc, nacp, ok := a.gnss(n)
+		if ok {
+			out = append(out, airbornePosition(a.icao, a.lat, a.lon, a.alt, a.odd, tc))
+			a.odd = !a.odd
+		} else {
+			out = append(out, noPosition(a.icao, a.alt))
+		}
 		if (n+a.phase)%2 == 0 {
 			out = append(out, velocity(a.icao, a.gs, a.track, a.vr))
 		}
@@ -292,6 +328,9 @@ func (a *aircraft) frames(n int) [][]byte {
 		}
 		if (n+a.phase)%a.identEvery == 5 {
 			out = append(out, targetState(a.icao, a.selectedAltitude(), a.track))
+		}
+		if (n+a.phase)%a.identEvery == 7 {
+			out = append(out, operationalStatus(a.icao, nacp))
 		}
 		return out
 	}
@@ -407,6 +446,7 @@ func main() {
 	flag.Float64Var(&o.departures, "departures", 0.3, "fraction of aircraft that stop transmitting before the end")
 	format := flag.String("format", "avr", "output format: avr (text) or beast (binary, with signal level)")
 	flag.IntVar(&o.taxiing, "taxiing", 6, "extra aircraft taxiing at an airfield 6 nm north-east of the receiver")
+	flag.Float64Var(&o.jammed, "jammed", 0.08, "fraction of ADS-B aircraft whose GNSS degrades and then is lost for 2–4 minutes")
 	flag.Parse()
 	o.step = 0.5
 	switch *format {

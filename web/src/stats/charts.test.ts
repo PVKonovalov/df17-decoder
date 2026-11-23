@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { HourRow } from '../api/stats'
-import { altitudeOption, healthOption, hourlyOption, rankingOption } from './charts'
+import { altitudeOption, healthOption, hourlyOption, qualityOption, rankingOption } from './charts'
 import type { ChartTheme } from './theme'
 
 const theme: ChartTheme = {
   text: '#000', muted: '#666', border: '#ccc', surface: '#fff', adsb: 'blue', modes: 'amber', line: 'purple',
-  other: 'grey', bad: 'red', heatLow: '#eee', heatHigh: '#00f',
+  other: 'grey', bad: 'red', warn: 'orange', heatLow: '#eee', heatHigh: '#00f',
 }
 const row = (h: number, extra: Partial<HourRow> = {}): HourRow => ({
   hour: new Date(Date.UTC(2026, 10, 20, h)).toISOString(), aircraftAdsb: 2, aircraftModes: 1, flightsStarted: 0, positions: 0, ...extra,
@@ -32,6 +32,15 @@ describe('chart options', () => {
     const o = healthOption([row(10, { frames: 2000, crcFailures: 500, silentMinutes: 4 }), row(11)], theme, 'UTC')
     const [frames, crc, silent] = o.series as Series
     expect([frames?.data, crc?.data, silent?.data, silent?.yAxisIndex]).toEqual([[2000, null], [25, null], [4, null], 1])
+  })
+
+  it('stacks ADS-B aircraft by position quality with the lost or degraded share, old hours as gaps', () => {
+    const q = { aircraftAdsb: 10, adsbPositionOk: 6, adsbNoPosition: 1, adsbDegraded: 2, adsbLost: 1 }
+    const o = qualityOption([row(10, q), row(11), row(12, { ...q, partial: true })], theme, 'UTC')
+    const series = o.series as Series
+    expect(series.map((s) => s.name)).toEqual(['Position OK', 'No position received', 'Degraded (NIC < 7 or NACp < 8)', 'Position lost (TC 0)', '% lost or degraded'])
+    expect(series[3]?.data).toEqual([{ value: 1 }, { value: null }, { value: 1, itemStyle: { opacity: 0.4 } }])
+    expect(series[4]?.data).toEqual([30, null, 30])
   })
 
   it('colors unknown and ground apart from altitudes', () => {

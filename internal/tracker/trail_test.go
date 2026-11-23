@@ -15,15 +15,19 @@ type fakeSink struct {
 	flights []FlightInfo
 	points  map[int64][]TrackPoint
 	samples map[int64][]Sample
+	quality map[int64][]QualityChange
 }
 
 func newFakeSink() *fakeSink {
-	return &fakeSink{points: map[int64][]TrackPoint{}, samples: map[int64][]Sample{}}
+	return &fakeSink{points: map[int64][]TrackPoint{}, samples: map[int64][]Sample{}, quality: map[int64][]QualityChange{}}
 }
 
 func (s *fakeSink) Flight(f FlightInfo)          { s.flights = append(s.flights, f) }
 func (s *fakeSink) Point(id int64, p TrackPoint) { s.points[id] = append(s.points[id], p) }
 func (s *fakeSink) Sample(id int64, smp Sample)  { s.samples[id] = append(s.samples[id], smp) }
+func (s *fakeSink) Quality(id int64, q QualityChange) {
+	s.quality[id] = append(s.quality[id], q)
+}
 func (s *fakeSink) closed() (ids []int64) {
 	for _, f := range s.flights {
 		if f.Closed {

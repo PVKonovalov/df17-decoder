@@ -4,15 +4,21 @@ import { momentSearch } from './aggregate'
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-/** NotableList lists emergencies and first-seen addresses; each row opens the map in playback with the aircraft. */
+const KIND_LABEL = { gnssLost: 'GNSS', firstSeen: 'NEW' } as const
+
+/**
+ * NotableList lists emergencies, position losses and first-seen addresses; each row opens the map in playback with
+ * the aircraft.
+ */
 export function NotableList({ notable }: { notable: Notable }) {
-  const { events, emergencies, firstSeen } = notable
-  const more = emergencies + firstSeen - events.length
+  const { events, emergencies, gnssLost, firstSeen } = notable
+  const more = emergencies + gnssLost + firstSeen - events.length
   return (
     <>
       <p className="stats-hint">
-        {emergencies} emergenc{emergencies === 1 ? 'y' : 'ies'} · {firstSeen} address{firstSeen === 1 ? '' : 'es'} seen
-        for the first time. Click a row to replay that moment.
+        {emergencies} emergenc{emergencies === 1 ? 'y' : 'ies'} · {gnssLost} flight{gnssLost === 1 ? '' : 's'} lost
+        their position · {firstSeen} address{firstSeen === 1 ? '' : 'es'} seen for the first time. Click a row to
+        replay that moment.
       </p>
       <ul className="notable-list">
         {events.map((e) => {
@@ -20,7 +26,7 @@ export function NotableList({ notable }: { notable: Notable }) {
           return (
             <li key={`${e.kind}/${e.icao}/${String(e.flightId)}/${e.squawk ?? ''}`} className={e.kind}>
               <a href={`/${search}`} onClick={linkClick('/', search)}>
-                <span className="notable-kind">{e.kind === 'emergency' ? e.squawk : 'NEW'}</span>
+                <span className="notable-kind">{e.kind === 'emergency' ? e.squawk : KIND_LABEL[e.kind]}</span>
                 <time dateTime={e.t}>{timeFmt.format(new Date(e.t))}</time>
                 <span className="notable-icao">{e.icao}</span>
                 <span>{e.callsign ?? ''}</span>

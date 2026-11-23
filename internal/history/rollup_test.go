@@ -473,3 +473,50 @@ func TestLiveSaveLoad(t *testing.T) {
 		t.Errorf("loading again: %+v", again)
 	}
 }
+
+func TestRollup_PositionQuality(t *testing.T) {
+	s := rollupStore(t, Options{})
+	ctx := context.Background()
+	at := func(min int) int64 { return t0.Add(time.Duration(min) * time.Minute).UnixMilli() }
+	s.Quality(1, tracker.QualityChange{T: at(11), Quality: tracker.QualityOK})
+	s.Quality(4, tracker.QualityChange{T: at(51), Quality: tracker.QualityOK})
+	s.Quality(4, tracker.QualityChange{T: at(55), Quality: tracker.QualityLost})
+	s.Quality(6, tracker.QualityChange{T: at(31), Quality: tracker.QualityDegraded})
+	if _, err := s.write(drain(s)); err != nil {
+		t.Fatal(err)
+	}
+	for h := range 2 {
+		if err := s.rollupHour(ctx, t0.Add(time.Duration(h)*time.Hour), nil, sizes{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := s.Hourly(ctx, t0, t0.Add(2*time.Hour), t0.Add(5*time.Hour))
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows %v, err %v", rows, err)
+	}
+	// 12:00: 4840D6 ok with positions, 40621D lost, 3C6444 degraded; 13:00: 40621D still lost though positioned
+	for i, want := range []qualityCounts{{ok: 1, degraded: 1, lost: 1}, {lost: 1}} {
+		r := rows[i]
+		if r.ADSBPositionOK == nil {
+			t.Fatalf("hour %d: no quality columns", i)
+		}
+		got := qualityCounts{*r.ADSBPositionOK, *r.ADSBDegraded, *r.ADSBLost, *r.ADSBNoPosition}
+		if got != want {
+			t.Errorf("hour %d: %+v, want %+v", i, got, want)
+		}
+	}
+	n, err := s.NotableEvents(ctx, t0, t0.Add(2*time.Hour), t0.Add(5*time.Hour), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.GNSSLost != 1 || n.Events[0].Kind != KindGNSSLost || n.Events[0].ICAO != "40621D" || n.Events[0].Callsign != "N123AB" {
+		t.Errorf("notable %+v", n)
+	}
+}
+
+func TestClassify_NoPosition(t *testing.T) {
+	c := classify(map[string]bool{"A": true, "B": true, "C": false}, nil, map[string]bool{"A": true})
+	if c != (qualityCounts{ok: 1, noPosition: 1}) {
+		t.Errorf("%+v", c)
+	}
+}

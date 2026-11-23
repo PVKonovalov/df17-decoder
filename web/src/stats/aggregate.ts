@@ -30,21 +30,31 @@ export interface Heatmap {
   latest: Map<string, string>
 }
 
+/** Ratio gives an hour's numerator and denominator for a heatmap cell, null to skip the hour. */
+export type Ratio = (r: HourRow) => [number, number] | null
+
+const aircraftPerHour: Ratio = (r) => [r.aircraftAdsb + r.aircraftModes, 1]
+
+/** gnssShare is the percentage of ADS-B aircraft that lost or degraded their position, null for hours without it. */
+export const gnssShare: Ratio = (r) =>
+  r.adsbLost === undefined || r.adsbDegraded === undefined ? null : [(r.adsbLost + r.adsbDegraded) * 100, r.aircraftAdsb]
+
 /**
- * heatmap averages the aircraft per hour of the finished hours in rows by local weekday and hour in tz. An hour a
- * DST change skips has no cell; a repeated one averages both.
+ * heatmap sums ratio over the finished hours in rows by local weekday and hour in tz and divides: by default the
+ * average aircraft per hour. An hour a DST change skips has no cell; a repeated one counts both.
  */
-export function heatmap(rows: HourRow[], tz: string): Heatmap {
+export function heatmap(rows: HourRow[], tz: string, ratio: Ratio = aircraftPerHour): Heatmap {
   const sum = new Map<string, { n: number; total: number; latest: string }>()
   for (const r of rows) {
-    if (r.partial === true) {
+    const v = r.partial === true ? null : ratio(r)
+    if (v === null) {
       continue
     }
     const { day, hour } = localParts(r.hour, tz)
     const key = `${day}-${hour}`
     const c = sum.get(key) ?? { n: 0, total: 0, latest: r.hour }
-    c.n++
-    c.total += r.aircraftAdsb + r.aircraftModes
+    c.n += v[1]
+    c.total += v[0]
     if (Date.parse(r.hour) > Date.parse(c.latest)) {
       c.latest = r.hour
     }
@@ -53,7 +63,7 @@ export function heatmap(rows: HourRow[], tz: string): Heatmap {
   const out: Heatmap = { cells: [], max: 0, latest: new Map() }
   for (const [key, c] of sum) {
     const [day, hour] = key.split('-').map(Number) as [number, number]
-    const avg = Math.round((c.total / c.n) * 10) / 10
+    const avg = c.n === 0 ? 0 : Math.round((c.total / c.n) * 10) / 10
     out.cells.push([hour, day, avg])
     out.max = Math.max(out.max, avg)
     out.latest.set(key, c.latest)

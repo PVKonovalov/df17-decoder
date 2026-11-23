@@ -51,6 +51,10 @@
     "reconnects": 0,
     "silentMinutes": 0,
     "signalDbfs": -21.4,
+    "adsbPositionOk": 33,
+    "adsbDegraded": 4,
+    "adsbLost": 3,
+    "adsbNoPosition": 1,
     "partial": true
   },
   "country": {
@@ -74,6 +78,7 @@
   },
   "notable": {
     "emergencies": 1,
+    "gnssLost": 3,
     "firstSeen": 14,
     "events": [
       {

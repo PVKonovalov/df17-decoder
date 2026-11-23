@@ -29,6 +29,10 @@ type Aircraft struct {
 	Mach         *float64 `json:"mach,omitempty"`         // Comm-B 6,0
 	OnGround     *bool    `json:"onGround,omitempty"`
 
+	NIC             *int    `json:"nic,omitempty"`             // navigation integrity category of the last position type code
+	NACp            *int    `json:"nacp,omitempty"`            // navigation accuracy category for position (TC 31)
+	PositionQuality Quality `json:"positionQuality,omitempty"` // ADS-B only; "" until a position or accuracy is known
+
 	SelectedAlt       *int     `json:"selectedAlt,omitempty"`       // ft, from TC 29
 	SelectedAltSource string   `json:"selectedAltSource,omitempty"` // "mcp" or "fms"
 	SelectedHeading   *float64 `json:"selectedHeading,omitempty"`   // degrees

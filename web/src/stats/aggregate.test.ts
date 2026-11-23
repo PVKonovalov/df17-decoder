@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HourRow } from '../api/stats'
-import { bestDay, crcShare, heatmap, localParts, momentSearch, topWithOther } from './aggregate'
+import { bestDay, crcShare, gnssShare, heatmap, localParts, momentSearch, topWithOther } from './aggregate'
 
 const row = (hour: string, adsb: number, modes = 0, partial = false): HourRow => ({
   hour, aircraftAdsb: adsb, aircraftModes: modes, flightsStarted: 0, positions: 0, ...(partial ? { partial } : {}),
@@ -15,6 +15,16 @@ describe('heatmap', () => {
     expect(hm.cells).toEqual([[13, 4, 8]])
     expect(hm.max).toBe(8)
     expect(hm.latest.get('4-13')).toBe('2026-11-27T12:00:00Z')
+  })
+
+  it('pools the lost or degraded share over the hours of a cell, skipping hours without quality', () => {
+    const q = (lost: number, degraded: number) => ({ adsbLost: lost, adsbDegraded: degraded, adsbPositionOk: 0, adsbNoPosition: 0 })
+    const hm = heatmap(
+      [{ ...row('2026-11-20T12:00:00Z', 10), ...q(1, 1) }, { ...row('2026-11-27T12:00:00Z', 30), ...q(6, 0) }, row('2026-11-27T13:00:00Z', 5)],
+      TZ,
+      gnssShare,
+    )
+    expect(hm.cells).toEqual([[13, 4, 20]])
   })
 
   it('follows DST: the skipped hour has no cell, the repeated one averages both', () => {

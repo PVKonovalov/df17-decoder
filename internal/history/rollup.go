@@ -406,7 +406,7 @@ func (s *Store) sizes(src RollupSources) sizes {
 
 // rollupVersion is the version of the computed columns; older hours are recomputed by the backfill while their
 // flights are still stored.
-const rollupVersion = 2
+const rollupVersion = 3
 
 // Altitude bands of hourly_altitude: BandGround, BandUnknown, else the band's lower bound in ft (5000 ft bands,
 // the last from MaxBandFt up).
@@ -432,9 +432,11 @@ func altitudeBand(alt sql.NullInt64, onGround bool) int {
 const (
 	KindEmergency = "emergency"
 	KindFirstSeen = "firstSeen"
+	KindGNSSLost  = "gnssLost"
 )
 
-// NotableEvent is an emergency squawk (its first sighting in the flight) or the first sighting of an ICAO address.
+// NotableEvent is an emergency squawk (its first sighting in the flight), the first sighting of an ICAO address, or
+// the first loss of position (tracker.QualityLost) in a flight.
 type NotableEvent struct {
 	T        time.Time `json:"t"`
 	Kind     string    `json:"kind"`
@@ -460,7 +462,34 @@ type hourStats struct {
 	altitude           map[int]int
 	events             []NotableEvent
 	seen               map[string][2]int64 // icao → first and last sighting in the hour (unix ms)
+	quality            qualityCounts
 }
+
+// qualityCounts splits the hour's ADS-B aircraft by their worst position quality: lost, then degraded, then no
+// position received at all (no loss reported: out of range, too few frames), else ok.
+type qualityCounts struct{ ok, degraded, lost, noPosition int }
+
+// classify counts each ADS-B address once by the qualities its flights reported in the hour and whether any
+// position of it was stored.
+func classify(adsb map[string]bool, reported map[string]map[tracker.Quality]bool, positioned map[string]bool) qualityCounts {
+	var c qualityCounts
+	for icao, isADSB := range adsb {
+		switch q := reported[icao]; {
+		case !isADSB:
+		case q[tracker.QualityLost]:
+			c.lost++
+		case q[tracker.QualityDegraded]:
+			c.degraded++
+		case !positioned[icao]:
+			c.noPosition++
+		default:
+			c.ok++
+		}
+	}
+	return c
+}
+
+type flightRef struct{ icao, callsign string }
 
 // computeHour aggregates the flights and positions in [start, end) from db (the writer or a read-only handle).
 func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Time) (hourStats, error) {
@@ -475,7 +504,8 @@ func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Tim
 	if err != nil {
 		return h, err
 	}
-	adsb := map[string]bool{} // address → any ADS-B flight in the hour
+	adsb := map[string]bool{}        // address → any ADS-B flight in the hour
+	flights := map[int64]flightRef{} // flights overlapping the hour
 	countries := map[string]map[string]bool{}
 	operators := map[string]map[string]bool{}
 	addTo := func(m map[string]map[string]bool, key, icao string) {
@@ -494,6 +524,7 @@ func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Tim
 			return h, err
 		}
 		adsb[icao] = adsb[icao] || isADSB
+		flights[id] = flightRef{icao, callsign}
 		if sn, ok := h.seen[icao]; ok {
 			h.seen[icao] = [2]int64{min(sn[0], first), max(sn[1], last)}
 		} else {
@@ -561,17 +592,26 @@ func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Tim
 		h.events[i].Country = icaoCountry(h.events[i].ICAO)
 	}
 
-	prows, err := db.QueryContext(ctx, `SELECT lat, lon, alt, on_ground FROM positions WHERE t >= ? AND t < ?`, lo, hi)
+	reported, err := s.hourQuality(ctx, db, lo, hi, flights, &h)
+	if err != nil {
+		return h, err
+	}
+	positioned := map[string]bool{}
+	prows, err := db.QueryContext(ctx, `SELECT flight_id, lat, lon, alt, on_ground FROM positions WHERE t >= ? AND t < ?`, lo, hi)
 	if err != nil {
 		return h, err
 	}
 	defer prows.Close()
 	for prows.Next() {
+		var id int64
 		var p geo.Point
 		var alt sql.NullInt64
 		var ground bool
-		if err := prows.Scan(&p.Lat, &p.Lon, &alt, &ground); err != nil {
+		if err := prows.Scan(&id, &p.Lat, &p.Lon, &alt, &ground); err != nil {
 			return h, err
+		}
+		if f, ok := flights[id]; ok {
+			positioned[f.icao] = true
 		}
 		h.positions++
 		h.altitude[altitudeBand(alt, ground)]++
@@ -581,7 +621,71 @@ func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Tim
 			}
 		}
 	}
-	return h, prows.Err()
+	if err := prows.Err(); err != nil {
+		return h, err
+	}
+	h.quality = classify(adsb, reported, positioned)
+	return h, nil
+}
+
+// hourQuality returns the position qualities each address reported in [lo, hi) (unix ms) from the flights
+// overlapping it: the changes in the hour and the state each flight entered it with. It adds a KindGNSSLost event
+// to h for each flight's first loss in the hour.
+func (s *Store) hourQuality(ctx context.Context, db *sql.DB, lo, hi int64, flights map[int64]flightRef, h *hourStats) (map[string]map[tracker.Quality]bool, error) {
+	out := map[string]map[tracker.Quality]bool{}
+	add := func(id int64, q string) {
+		f, ok := flights[id]
+		if !ok {
+			return
+		}
+		if out[f.icao] == nil {
+			out[f.icao] = map[tracker.Quality]bool{}
+		}
+		out[f.icao][tracker.Quality(q)] = true
+	}
+	rows, err := db.QueryContext(ctx, `SELECT f.id, (SELECT quality FROM position_quality
+		WHERE flight_id = f.id AND t < ? ORDER BY t DESC LIMIT 1)
+		FROM flights f WHERE f.first_seen < ? AND f.last_seen >= ? AND f.adsb = 1`, lo, hi, lo)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id int64
+		var q sql.NullString
+		if err := rows.Scan(&id, &q); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if q.Valid {
+			add(id, q.String)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = db.QueryContext(ctx, `SELECT flight_id, t, quality FROM position_quality WHERE t >= ? AND t < ?
+		ORDER BY t`, lo, hi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	lost := map[int64]bool{}
+	for rows.Next() {
+		var id, t int64
+		var q string
+		if err := rows.Scan(&id, &t, &q); err != nil {
+			return nil, err
+		}
+		add(id, q)
+		if f, ok := flights[id]; ok && tracker.Quality(q) == tracker.QualityLost && !lost[id] {
+			lost[id] = true
+			h.events = append(h.events, NotableEvent{T: time.UnixMilli(t).UTC(), Kind: KindGNSSLost, ICAO: f.icao,
+				Country: icaoCountry(f.icao), Callsign: f.callsign, FlightID: id})
+		}
+	}
+	return out, rows.Err()
 }
 
 // icaoCountry returns the country of a hex ICAO address, "" when unknown.
@@ -613,11 +717,15 @@ func (s *Store) rollupHour(ctx context.Context, hour time.Time, live *liveHour, 
 			live.silentMinutes, live.dbfs()}
 	}
 	args := append([]any{h, hs.adsb, hs.modes, hs.started, hs.positions, hs.maxRange, hs.bearing, sz.db, sz.tape}, lv...)
-	args = append(args, rollupVersion)
+	q := hs.quality
+	args = append(args, rollupVersion, q.ok, q.degraded, q.lost, q.noPosition)
 	if _, err := tx.Exec(`INSERT INTO hourly (hour, aircraft_adsb, aircraft_modes, flights_started, positions,
 		max_range_nm, max_range_bearing, db_bytes, tape_bytes, messages, frames, crc_failures, fixed_bit_errors,
-		cpr_rejected, reconnects, silent_minutes, signal_dbfs, rollup_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		cpr_rejected, reconnects, silent_minutes, signal_dbfs, rollup_version, adsb_position_ok, adsb_degraded,
+		adsb_lost, adsb_no_position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (hour) DO UPDATE SET aircraft_adsb = excluded.aircraft_adsb,
+		adsb_position_ok = excluded.adsb_position_ok, adsb_degraded = excluded.adsb_degraded,
+		adsb_lost = excluded.adsb_lost, adsb_no_position = excluded.adsb_no_position,
 		aircraft_modes = excluded.aircraft_modes, flights_started = excluded.flights_started,
 		positions = excluded.positions, max_range_nm = excluded.max_range_nm,
 		max_range_bearing = excluded.max_range_bearing, rollup_version = excluded.rollup_version,

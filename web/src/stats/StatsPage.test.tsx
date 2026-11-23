@@ -80,14 +80,15 @@ describe('StatsPage', () => {
     expect((await screen.findAllByText(/set history.enabled: true/)).length).toBeGreaterThan(1)
 
     cleanup()
-    serve({ '/api/storage': statsFixture.storage, '/api/stats/notable': { emergencies: 0, firstSeen: 0, events: [] } })
+    serve({ '/api/storage': statsFixture.storage, '/api/stats/notable': { emergencies: 0, gnssLost: 0, firstSeen: 0, events: [] } })
     render(<StatsPage />)
     expect(await screen.findByText(/No data yet: rollups start after the first full hour/)).toBeTruthy()
     expect(screen.getByText('No aircraft in this range.')).toBeTruthy()
     expect(screen.getAllByText('No positions in this range.').length).toBe(2) // range and altitude
     expect(screen.getByText('No airline callsigns in this range.')).toBeTruthy()
     expect(screen.getByText(/No receiver counters yet/)).toBeTruthy()
-    expect(screen.getByText('No emergencies or new aircraft in this range.')).toBeTruthy()
+    expect(screen.getByText(/No position quality yet/)).toBeTruthy()
+    expect(screen.getByText('No emergencies, position losses or new aircraft in this range.')).toBeTruthy()
   })
 
   it('keeps the picked range in the URL', async () => {

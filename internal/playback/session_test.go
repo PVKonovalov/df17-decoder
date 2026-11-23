@@ -197,6 +197,7 @@ type countingSink struct{ n atomic.Int64 }
 func (c *countingSink) Flight(tracker.FlightInfo)                { c.n.Add(1) }
 func (c *countingSink) Point(int64, tracker.TrackPoint)          { c.n.Add(1) }
 func (c *countingSink) Sample(int64, tracker.Sample)             { c.n.Add(1) }
+func (c *countingSink) Quality(int64, tracker.QualityChange)     { c.n.Add(1) }
 func (c *countingSink) Add(geo.Point, *int, *float64, time.Time) { c.n.Add(1) }
 func (c *countingSink) count() int64                             { return c.n.Load() }
 

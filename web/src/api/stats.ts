@@ -37,6 +37,11 @@ export interface HourRow {
   reconnects?: number
   silentMinutes?: number
   signalDbfs?: number
+  // ADS-B aircraft by their worst position quality in the hour (they sum to aircraftAdsb); absent for old hours
+  adsbPositionOk?: number
+  adsbDegraded?: number
+  adsbLost?: number
+  adsbNoPosition?: number
   partial?: boolean
 }
 
@@ -50,7 +55,7 @@ export interface AltitudeBand {
 /** history.NotableEvent */
 export interface NotableEvent {
   t: string
-  kind: 'emergency' | 'firstSeen'
+  kind: 'emergency' | 'gnssLost' | 'firstSeen'
   icao: string
   country?: string
   callsign?: string
@@ -58,9 +63,10 @@ export interface NotableEvent {
   flightId: number
 }
 
-/** history.Notable: GET /api/stats/notable, emergencies first, then newest first */
+/** history.Notable: GET /api/stats/notable, emergencies first, then position losses, then first sightings, newest first */
 export interface Notable {
   emergencies: number
+  gnssLost: number
   firstSeen: number
   events: NotableEvent[]
 }
@@ -121,6 +127,10 @@ export const hourRowKeys = {
   reconnects: true,
   silentMinutes: true,
   signalDbfs: true,
+  adsbPositionOk: true,
+  adsbDegraded: true,
+  adsbLost: true,
+  adsbNoPosition: true,
   partial: true,
 } satisfies Keys<HourRow>
 
@@ -128,7 +138,7 @@ export const countryKeys = { country: true, aircraftHours: true } satisfies Keys
 export const operatorKeys = { prefix: true, aircraftHours: true } satisfies Keys<OperatorCount>
 export const rangeDayKeys = { day: true, maxRangeNm: true, bearing: true, hour: true } satisfies Keys<RangeDay>
 export const altitudeKeys = { band: true, minFt: true, positions: true } satisfies Keys<AltitudeBand>
-export const notableKeys = { emergencies: true, firstSeen: true, events: true } satisfies Keys<Notable>
+export const notableKeys = { emergencies: true, gnssLost: true, firstSeen: true, events: true } satisfies Keys<Notable>
 export const notableEventKeys = {
   t: true,
   kind: true,

@@ -59,6 +59,9 @@ type AircraftStatus struct {
 type OperationalStatus struct {
 	Version int  // ADS-B version: 0 (DO-260), 1 (DO-260A), 2 (DO-260B)
 	Surface bool // subtype 1 (surface) rather than 0 (airborne)
+	NICA    bool // NIC supplement-A
+	NACp    *int // navigation accuracy category for position, 0–11; nil for version 0
+	SIL     *int // source integrity level, 0–3; nil for version 0
 }
 
 // decodeAircraftStatus decodes TC 28. ME: ST 6–8, emergency state 9–11, Mode A code 12–24 (13-bit ID field).
@@ -76,14 +79,20 @@ func decodeAircraftStatus(msg []byte) (AircraftStatus, error) {
 	return s, nil
 }
 
-// decodeOperationalStatus decodes TC 31. ME: ST 6–8 (0 airborne, 1 surface), version 41–43.
+// decodeOperationalStatus decodes TC 31. ME: ST 6–8 (0 airborne, 1 surface), version 41–43, and from version 1:
+// NIC supplement-A 44, NACp 45–48, SIL 51–52.
 // The 1090 MHz Riddle, "Operation Status" (https://mode-s.org/1090mhz/content/ads-b/6-operation-status.html).
 func decodeOperationalStatus(msg []byte) (OperationalStatus, error) {
 	st := bits(msg, 38, 3)
 	if st > 1 {
 		return OperationalStatus{}, fmt.Errorf("%w: TC31 subtype %d", ErrUnsupportedTC, st)
 	}
-	return OperationalStatus{Version: int(bits(msg, 73, 3)), Surface: st == 1}, nil
+	s := OperationalStatus{Version: int(bits(msg, 73, 3)), Surface: st == 1}
+	if s.Version >= 1 {
+		s.NICA = bits(msg, 76, 1) == 1
+		s.NACp, s.SIL = new(int(bits(msg, 77, 4))), new(int(bits(msg, 83, 2)))
+	}
+	return s, nil
 }
 
 // Squawk decodes a 13-bit identity field C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4 into 4 octal digits ABCD,

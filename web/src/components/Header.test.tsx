@@ -22,6 +22,7 @@ const stats: Stats = {
   addressParityDrops: 0,
   positions: 4,
   cprRejected: 0,
+  noPosition: 0,
   commBAmbiguous: 0,
   commBRejected: 0,
   aircraft: 1,

@@ -23,6 +23,7 @@ type Stats struct {
 	AddressParityDrops atomic.Uint64
 	Positions          atomic.Uint64
 	CPRRejected        atomic.Uint64
+	NoPosition         atomic.Uint64 // ADS-B TC 0: the transponder reports no valid position
 	CommBAmbiguous     atomic.Uint64 // DF20/21 MB fields that fit more than one register
 	CommBRejected      atomic.Uint64 // inferred registers inconsistent with the aircraft's recent state
 	SignalFrames       atomic.Uint64 // frames with a signal level (Beast)
@@ -83,6 +84,7 @@ type Snapshot struct {
 	AddressParityDrops uint64
 	Positions          uint64
 	CPRRejected        uint64
+	NoPosition         uint64
 	CommBAmbiguous     uint64
 	CommBRejected      uint64
 }
@@ -100,6 +102,7 @@ func (s *Stats) Snapshot(now time.Time) Snapshot {
 		AddressParityDrops: s.AddressParityDrops.Load(),
 		Positions:          s.Positions.Load(),
 		CPRRejected:        s.CPRRejected.Load(),
+		NoPosition:         s.NoPosition.Load(),
 		CommBAmbiguous:     s.CommBAmbiguous.Load(),
 		CommBRejected:      s.CommBRejected.Load(),
 	}

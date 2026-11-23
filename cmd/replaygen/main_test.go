@@ -39,7 +39,7 @@ func TestEncoders_RoundTrip(t *testing.T) {
 		t.Errorf("vehicle identification: %+v", m.Identification)
 	}
 
-	m := decode(t, airbornePosition(icao, 25.08, 22.81, 12000, true))
+	m := decode(t, airbornePosition(icao, 25.08, 22.81, 12000, true, 11))
 	if p := m.AirbornePosition; p == nil || p.Altitude == nil || *p.Altitude != 12000 || p.CPR != modes.EncodeCPR(25.08, 22.81, true) {
 		t.Errorf("position: %+v", p)
 	}
@@ -55,6 +55,16 @@ func TestEncoders_RoundTrip(t *testing.T) {
 
 	if s := decode(t, emergencyStatus(icao, 1, "7700")).AircraftStatus; s == nil || s.Squawk != "7700" || s.Emergency.String() != "general" {
 		t.Errorf("status: %+v", s)
+	}
+
+	if np := decode(t, noPosition(icao, 36000)).NoPosition; np == nil || np.Altitude == nil || *np.Altitude != 36000 {
+		t.Errorf("no position: %+v", np)
+	}
+	if s := decode(t, operationalStatus(icao, 4)).OperationalStatus; s == nil || s.Version != 2 || s.NACp == nil || *s.NACp != 4 {
+		t.Errorf("operational status: %+v", s)
+	}
+	if nic, _ := modes.NIC(decode(t, airbornePosition(icao, 25.08, 22.81, 12000, false, 16)).TC, false, false); nic != 2 {
+		t.Errorf("TC 16 NIC %d", nic)
 	}
 
 	ts := decode(t, targetState(icao, 35000, 271)).TargetState
@@ -334,5 +344,41 @@ func TestNewFleet_Categories(t *testing.T) {
 	}
 	if seen["C2"] != o.taxiing/3 {
 		t.Errorf("vehicles %d, want %d", seen["C2"], o.taxiing/3)
+	}
+}
+
+func TestGenerate_Jammed(t *testing.T) {
+	o := options{lat: 25.07, lon: 22.87, count: 30, duration: 600, step: 0.5, maxRangeNm: 150, seed: 3, jammed: 0.3}
+	r := rand.New(rand.NewPCG(o.seed, o.seed^0x9E3779B97F4A7C15))
+	fleet := newFleet(o, r)
+	var jammed *aircraft
+	for _, a := range fleet {
+		if a.jamTo > 0 {
+			jammed = a
+			break
+		}
+	}
+	if jammed == nil {
+		t.Fatal("no jammed aircraft")
+	}
+	kinds := map[string]bool{}
+	for n := jammed.start; n < jammed.end; n++ {
+		for _, f := range jammed.frames(n) {
+			m := decode(t, f)
+			switch {
+			case m.NoPosition != nil:
+				kinds["lost"] = true
+				if n < jammed.jamLost || n >= jammed.jamTo {
+					t.Fatalf("TC 0 on tick %d outside [%d, %d)", n, jammed.jamLost, jammed.jamTo)
+				}
+			case m.AirbornePosition != nil && m.TC == 16:
+				kinds["degraded"] = true
+			case m.OperationalStatus != nil && *m.OperationalStatus.NACp == 9:
+				kinds["ok"] = true
+			}
+		}
+	}
+	if len(kinds) != 3 {
+		t.Errorf("jammed aircraft sent %v, want ok, degraded and lost", kinds)
 	}
 }

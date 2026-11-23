@@ -35,6 +35,27 @@ const selectedAlt = (a: Aircraft) =>
     : `${a.selectedAlt.toLocaleString('en-US')} ft${a.selectedAltSource === undefined ? '' : ` (${a.selectedAltSource.toUpperCase()})`}`
 const autopilot = (modes: string[] | undefined) =>
   modes === undefined ? undefined : modes.map((m) => MODE_LABELS[m] ?? m).join(' · ') || 'none engaged'
+const QUALITY_TEXT: Record<string, string> = {
+  ok: 'OK',
+  degraded: 'Degraded',
+  lost: 'Lost (no position from the aircraft)',
+}
+
+/** positionQuality shows the aircraft's own report of its position with NIC and NACp; undefined when nothing is known. */
+function positionQuality(a: Aircraft): ReactNode {
+  const parts = [a.nic === undefined ? '' : `NIC ${a.nic}`, a.nacp === undefined ? '' : `NACp ${a.nacp}`].filter((p) => p !== '')
+  if (a.positionQuality === undefined && parts.length === 0) {
+    return undefined
+  }
+  return (
+    <>
+      {a.positionQuality !== undefined && (
+        <span className={`quality ${a.positionQuality}`}>{QUALITY_TEXT[a.positionQuality] ?? a.positionQuality}</span>
+      )}
+      {parts.length > 0 && `${a.positionQuality === undefined ? '' : ' · '}${parts.join(' · ')}`}
+    </>
+  )
+}
 const time = (iso: string | undefined) => (iso === undefined ? undefined : new Date(iso).toLocaleTimeString())
 
 /** Reference is the user's data for the aircraft and its callsign: undefined while unknown, null when none. */
@@ -82,6 +103,7 @@ export function detailRows(a: Aircraft, ref: Reference = {}): [string, ReactNode
     ['Autopilot', autopilot(a.autopilotModes)],
     ['Position', a.lat === undefined || a.lon === undefined ? undefined : `${a.lat.toFixed(4)}, ${a.lon.toFixed(4)}`],
     ['Position time', time(a.posTime)],
+    ['Position quality', positionQuality(a)],
     ['Distance', fixed(a.distanceNm, 1, ' nm')],
     ['Bearing', fixed(a.bearing, 0, '°')],
     ['RSSI', fixed(a.rssi, 1, ' dBFS')],

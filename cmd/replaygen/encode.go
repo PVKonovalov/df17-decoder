@@ -63,17 +63,28 @@ func altitude12(ft float64) uint64 {
 	return (n&0x7F0)<<1 | 1<<4 | n&0xF
 }
 
-// airbornePosition: TC 11 with barometric altitude and a CPR frame.
-func airbornePosition(icao uint32, lat, lon, ft float64, odd bool) []byte {
+// airbornePosition: type code tc (9–18, e.g. 11 for NIC 8, 18 for NIC 0) with barometric altitude and a CPR frame.
+func airbornePosition(icao uint32, lat, lon, ft float64, odd bool, tc uint64) []byte {
 	cpr := modes.EncodeCPR(lat, lon, odd)
 	f := uint64(0)
 	if odd {
 		f = 1
 	}
 	return extendedSquitter(icao, fields(56,
-		[2]uint64{11, 5}, [2]uint64{0, 2}, [2]uint64{0, 1}, [2]uint64{altitude12(ft), 12},
+		[2]uint64{tc, 5}, [2]uint64{0, 2}, [2]uint64{0, 1}, [2]uint64{altitude12(ft), 12},
 		[2]uint64{0, 1}, [2]uint64{f, 1}, [2]uint64{uint64(cpr.Lat), 17}, [2]uint64{uint64(cpr.Lon), 17},
 	))
+}
+
+// noPosition: TC 0 with barometric altitude only, as sent when the position source is lost.
+func noPosition(icao uint32, ft float64) []byte {
+	return extendedSquitter(icao, fields(56, [2]uint64{0, 5}, [2]uint64{0, 3}, [2]uint64{altitude12(ft), 12}))
+}
+
+// operationalStatus: TC 31 airborne, version 2, with NACp, SIL 3 and NICbaro set.
+func operationalStatus(icao uint32, nacp uint64) []byte {
+	return extendedSquitter(icao, fields(56, [2]uint64{31, 5}, [2]uint64{0, 3}, [2]uint64{0, 32}, [2]uint64{2, 3},
+		[2]uint64{0, 1}, [2]uint64{nacp, 4}, [2]uint64{0, 2}, [2]uint64{3, 2}, [2]uint64{1, 1}))
 }
 
 // velocity: TC 19 subtype 1 (ground speed from east/north components) and barometric vertical rate.

@@ -1,5 +1,5 @@
 import type { AltitudeBand, HourRow, RangeDay } from '../api/stats'
-import { bestDay, crcShare, OTHER, WEEKDAYS, type Heatmap, type Ranked } from './aggregate'
+import { bestDay, crcShare, gnssShare, OTHER, WEEKDAYS, type Heatmap, type Ranked } from './aggregate'
 import type { ChartOption } from './echarts'
 import type { ChartTheme } from './theme'
 
@@ -50,8 +50,8 @@ export function hourlyOption(rows: HourRow[], t: ChartTheme, tz: string): ChartO
 
 const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'))
 
-/** heatmapOption draws the 7 × 24 average aircraft per local hour, Monday on top. */
-export function heatmapOption(hm: Heatmap, t: ChartTheme): ChartOption {
+/** heatmapOption draws the 7 × 24 cells by local hour, Monday on top; label describes a cell's value. */
+export function heatmapOption(hm: Heatmap, t: ChartTheme, label = (v: number) => `${v} aircraft on average`, colors = [t.heatLow, t.heatHigh]): ChartOption {
   const b = base(t)
   return {
     textStyle: b.textStyle,
@@ -60,16 +60,58 @@ export function heatmapOption(hm: Heatmap, t: ChartTheme): ChartOption {
       ...b.tooltip,
       formatter: (p: unknown) => {
         const [h, d, v] = (p as { value: [number, number, number] }).value
-        return `${WEEKDAYS[d] ?? ''} ${HOURS[h] ?? ''}:00 — ${v} aircraft on average`
+        return `${WEEKDAYS[d] ?? ''} ${HOURS[h] ?? ''}:00 — ${label(v)}`
       },
     },
     xAxis: { type: 'category', data: HOURS, ...b.axis, splitArea: { show: false } },
     yAxis: { type: 'category', data: [...WEEKDAYS], inverse: true, ...b.axis },
     visualMap: {
       min: 0, max: Math.max(1, hm.max), calculable: false, orient: 'horizontal', left: 'center', bottom: 0,
-      itemHeight: 120, textStyle: { color: t.muted }, inRange: { color: [t.heatLow, t.heatHigh] },
+      itemHeight: 120, textStyle: { color: t.muted }, inRange: { color: colors },
     },
     series: [{ type: 'heatmap', data: hm.cells, itemStyle: { borderColor: t.surface, borderWidth: 1 }, emphasis: { itemStyle: { borderColor: t.text } } }],
+  }
+}
+
+/** QUALITY lists the position quality classes of the ADS-B aircraft, worst last, as stacked on the chart. */
+export const QUALITY = [
+  { key: 'adsbPositionOk', name: 'Position OK' },
+  { key: 'adsbNoPosition', name: 'No position received' },
+  { key: 'adsbDegraded', name: 'Degraded (NIC < 7 or NACp < 8)' },
+  { key: 'adsbLost', name: 'Position lost (TC 0)' },
+] as const satisfies readonly { key: keyof HourRow; name: string }[]
+
+/**
+ * qualityOption stacks the ADS-B aircraft per hour by their worst position quality (the partial hour lighter), with
+ * the share that lost or degraded their position on a second axis. Hours rolled up before quality was recorded are gaps.
+ */
+export function qualityOption(rows: HourRow[], t: ChartTheme, tz: string): ChartOption {
+  const b = base(t)
+  const colors = { adsbPositionOk: t.adsb, adsbNoPosition: t.other, adsbDegraded: t.warn, adsbLost: t.bad }
+  const bar = (v: (r: HourRow) => number | undefined) =>
+    rows.map((r) => {
+      const value = v(r) ?? null
+      return r.partial === true ? { value, itemStyle: { opacity: 0.4 } } : { value }
+    })
+  const share = (r: HourRow) => {
+    const s = gnssShare(r)
+    return s === null || s[1] === 0 ? null : Math.round((s[0] / s[1]) * 10) / 10
+  }
+  return {
+    textStyle: b.textStyle,
+    grid: { ...b.grid, bottom: rows.length > ZOOM_FROM ? 48 : 8 },
+    legend: { textStyle: { color: t.text }, top: 0 },
+    tooltip: { ...b.tooltip, trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'category', data: rows.map((r) => hourLabel(r.hour, tz) + (r.partial === true ? ' (so far)' : '')), ...b.axis, splitLine: { show: false } },
+    yAxis: [
+      { type: 'value', name: 'ADS-B aircraft', nameTextStyle: { color: t.muted }, minInterval: 1, ...b.axis },
+      { type: 'value', name: '% lost or degraded', min: 0, max: 100, nameTextStyle: { color: t.muted }, ...b.axis, splitLine: { show: false } },
+    ],
+    dataZoom: rows.length > ZOOM_FROM ? [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 8, textStyle: { color: t.muted } }] : [],
+    series: [
+      ...QUALITY.map((q) => ({ name: q.name, type: 'bar' as const, stack: 'quality', data: bar((r) => r[q.key]), itemStyle: { color: colors[q.key] } })),
+      { name: '% lost or degraded', type: 'line' as const, yAxisIndex: 1, showSymbol: false, connectNulls: false, data: rows.map(share), itemStyle: { color: t.line }, lineStyle: { width: 1 } },
+    ],
   }
 }
 

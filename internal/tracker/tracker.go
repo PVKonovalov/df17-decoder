@@ -48,6 +48,10 @@ type entry struct {
 	signal         [rssiWindow]float64 // linear power of the last frames, ring buffer
 	signalN        int                 // frames stored in signal so far
 	fl             *flight             // the aircraft's open flight
+	posTC          int                 // type code of the last position message, 0 before one
+	posFrameTime   time.Time           // data time of the last position message (TC 5–8, 9–18, 20–22)
+	noPosTime      time.Time           // data time of the last TC 0 (no position)
+	nicA, nicB     bool                // NIC supplements: A from TC 31, B from the last version 2 position
 }
 
 // rssiWindow is how many frames Aircraft.RSSI averages, as dump1090 does.
@@ -188,7 +192,16 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 		a.Category = id.Category
 		t.setCallsign(a, id.Callsign, "category", id.Category)
 	}
+	if p := m.NoPosition; p != nil {
+		e.noPosTime = m.Time
+		t.opt.Stats.NoPosition.Add(1)
+		if p.Altitude != nil {
+			a.AltBaro = p.Altitude
+		}
+	}
 	if p := m.AirbornePosition; p != nil {
+		e.posTC, e.posFrameTime = m.TC, m.Time
+		e.nicB = p.NICB && a.ADSBVersion != nil && *a.ADSBVersion == 2
 		if p.Altitude != nil {
 			if p.GNSS {
 				a.AltGNSS = p.Altitude
@@ -204,6 +217,7 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 		t.updatePosition(e, pos, err, rssi, attrs...)
 	}
 	if p := m.SurfacePosition; p != nil {
+		e.posTC, e.posFrameTime = m.TC, m.Time
 		if p.GroundSpeed != nil {
 			a.GroundSpeed = new(round(*p.GroundSpeed, 1))
 		}
@@ -230,9 +244,18 @@ func (t *Tracker) Update(m modes.Message, rssi *float64) bool {
 	if ts := m.TargetState; ts != nil {
 		t.updateTargetState(a, ts)
 	}
-	if s := m.OperationalStatus; s != nil && (a.ADSBVersion == nil || *a.ADSBVersion != s.Version) {
-		a.ADSBVersion = new(s.Version)
-		t.opt.Logger.Debug("operational status", "icao", a.ICAO, "adsbVersion", s.Version, "surface", s.Surface)
+	if s := m.OperationalStatus; s != nil {
+		if a.ADSBVersion == nil || *a.ADSBVersion != s.Version {
+			a.ADSBVersion = new(s.Version)
+			t.opt.Logger.Debug("operational status", "icao", a.ICAO, "adsbVersion", s.Version, "surface", s.Surface)
+		}
+		e.nicA = s.NICA
+		if s.NACp != nil {
+			setInt(&a.NACp, *s.NACp)
+		}
+	}
+	if m.DF == 17 || m.DF == 18 {
+		t.updateQuality(e, m.Time)
 	}
 	if s := m.Surveillance; s != nil {
 		t.updateSurveillance(e, m, s)
@@ -476,6 +499,32 @@ func (t *Tracker) updateTargetState(a *Aircraft, ts *modes.TargetState) {
 			t.opt.Logger.Debug("target state", append([]any{"icao", a.ICAO}, after...)...)
 		}
 	}
+}
+
+// setInt replaces *p with a pointer to v unless it already holds v.
+func setInt(p **int, v int) {
+	if *p == nil || **p != v {
+		*p = new(v)
+	}
+}
+
+// updateQuality derives the aircraft's position quality after an ADS-B message at data time at.
+func (t *Tracker) updateQuality(e *entry, at time.Time) {
+	a := &e.a
+	if nic, ok := modes.NIC(e.posTC, e.nicA, e.nicB); ok {
+		setInt(&a.NIC, nic)
+	}
+	q := qualityOf(a.NIC, a.NACp, e.posFrameTime, e.noPosTime, at)
+	if q == a.PositionQuality {
+		return
+	}
+	attrs := []any{"icao", a.ICAO, "callsign", a.Callsign, "quality", q, "nic", val(a.NIC), "nacp", val(a.NACp)}
+	if q == QualityLost || a.PositionQuality == QualityLost {
+		t.opt.Logger.Info("position quality", attrs...)
+	} else {
+		t.opt.Logger.Debug("position quality", attrs...)
+	}
+	a.PositionQuality = q
 }
 
 // val returns *p, or nil when p is nil.

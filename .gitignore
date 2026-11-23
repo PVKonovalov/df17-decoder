@@ -64,3 +64,4 @@ go.work.sum
 # Raw frame tape (tape.dir); reveals the receiver position
 /tape/
 *.tape.gz*
+/scripts

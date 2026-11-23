@@ -23,6 +23,10 @@ export interface Aircraft {
   mach?: number // Comm-B 6,0
   onGround?: boolean
 
+  nic?: number // navigation integrity category of the last position message
+  nacp?: number // navigation accuracy category for position (TC 31)
+  positionQuality?: string // tracker.Quality, ADS-B only once known: 'ok', 'degraded' (NIC < 7 or NACp < 8), 'lost'
+
   selectedAlt?: number // ft, autopilot/FMS target (ADS-B TC 29)
   selectedAltSource?: string // 'mcp' or 'fms'
   selectedHeading?: number // degrees
@@ -65,6 +69,9 @@ export const aircraftKeys = {
   roll: true,
   mach: true,
   onGround: true,
+  nic: true,
+  nacp: true,
+  positionQuality: true,
   selectedAlt: true,
   selectedAltSource: true,
   selectedHeading: true,
@@ -154,6 +161,7 @@ export interface Stats {
   addressParityDrops: number
   positions: number
   cprRejected: number
+  noPosition: number // ADS-B TC 0 messages: the aircraft reports no valid position
   commBAmbiguous: number // DF20/21 replies that fit more than one Comm-B register
   commBRejected: number // inferred Comm-B reports inconsistent with the aircraft's recent state
   aircraft: number

@@ -43,6 +43,7 @@ type Message struct {
 
 	Identification    *Identification
 	AirbornePosition  *AirbornePosition
+	NoPosition        *NoPosition
 	SurfacePosition   *SurfacePosition
 	Velocity          *Velocity
 	AircraftStatus    *AircraftStatus
@@ -57,7 +58,13 @@ type AirbornePosition struct {
 	Altitude           *int // ft; nil when unavailable or invalid
 	GNSS               bool // Altitude is GNSS height (TC 20–22) rather than barometric
 	SurveillanceStatus int  // 0 none, 1 permanent alert, 2 temporary alert, 3 SPI
+	NICB               bool // ME bit 8: NIC supplement-B in version 2, the single antenna flag before
 	CPR                CPRFrame
+}
+
+// NoPosition is ADS-B type code 0: the transponder has no valid position (e.g. GNSS lost), only the altitude.
+type NoPosition struct {
+	Altitude *int // ft, barometric; nil when unavailable
 }
 
 // Identification is the content of ADS-B type codes 1–4.
@@ -129,6 +136,12 @@ func decodeExtendedSquitter(msg []byte, m Message, opt Options) (Message, error)
 	}
 
 	switch {
+	case m.TC == 0: // no position information; ALT as in an airborne position (DO-260B §2.2.3.2.3)
+		var np NoPosition
+		if ft, ok := Altitude12(uint32(bits(msg, 41, 12))); ok {
+			np.Altitude = &ft
+		}
+		m.NoPosition = &np
 	case m.TC >= 1 && m.TC <= 4:
 		id, err := decodeIdentification(msg)
 		if err != nil {
@@ -179,6 +192,7 @@ func decodeAirbornePosition(msg []byte, tc int) AirbornePosition {
 	p := AirbornePosition{
 		GNSS:               tc >= 20,
 		SurveillanceStatus: int(bits(msg, 38, 2)),
+		NICB:               bits(msg, 40, 1) == 1,
 		CPR: CPRFrame{
 			Odd: bits(msg, 54, 1) == 1,
 			Lat: uint32(bits(msg, 55, 17)),
@@ -196,6 +210,46 @@ func decodeAirbornePosition(msg []byte, tc int) AirbornePosition {
 		p.Altitude = &ft
 	}
 	return p
+}
+
+// NIC returns the navigation integrity category of a position type code (airborne 9–18 and 20–22, surface 5–8)
+// with the NIC supplements A (TC 31) and B (version 2 position messages), and false for other type codes.
+// DO-260B Table 2-14 (airborne) and 2-15 (surface); for version 0 the type code gives the NUCp instead, mapped alike.
+func NIC(tc int, a, b bool) (int, bool) {
+	switch tc {
+	case 9, 20, 5:
+		return 11, true
+	case 10, 21, 6:
+		return 10, true
+	case 11:
+		if a && b {
+			return 9, true
+		}
+		return 8, true
+	case 7:
+		if a {
+			return 9, true
+		}
+		return 8, true
+	case 12:
+		return 7, true
+	case 13:
+		return 6, true
+	case 14:
+		return 5, true
+	case 15:
+		return 4, true
+	case 16:
+		if a && b {
+			return 3, true
+		}
+		return 2, true
+	case 17:
+		return 1, true
+	case 18, 22, 8:
+		return 0, true
+	}
+	return 0, false
 }
 
 const charset = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ##### ###############0123456789######"

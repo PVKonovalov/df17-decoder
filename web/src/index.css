@@ -1396,6 +1396,22 @@ body {
   color: var(--new);
 }
 
+.notable-list .gnssLost .notable-kind {
+  color: var(--warn);
+}
+
+.quality {
+  font-weight: 600;
+}
+
+.quality.degraded {
+  color: var(--warn);
+}
+
+.quality.lost {
+  color: var(--bad);
+}
+
 .notable-list .emergency .notable-kind {
   color: var(--bad);
 }

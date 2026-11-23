@@ -10,7 +10,9 @@ What it decodes:
 - **DF17/18 extended squitter:** callsign and emitter category, barometric and GNSS altitude, airborne position
   (global and local CPR), surface position with taxi speed and track (decoded against the receiver within 45 NM),
   target state (autopilot/FMS selected altitude and heading, altimeter setting, autopilot modes), velocity (ground speed or airspeed with heading, vertical rate), emergency state and
-  squawk, ADS-B version.
+  squawk, ADS-B version, position accuracy (NACp, NIC supplement-A, SIL from TC 31; NIC from the position type
+  code) and TC 0 "no position" messages, from which each ADS-B aircraft gets a position quality: `ok`, `degraded`
+  (NIC < 7 or NACp < 8) or `lost` (TC 0, or no position for 30 s while other messages arrive), e.g. under GNSS jamming.
 - **Non-ADS-B Mode S:**
   - DF11 all-call replies.
   - DF0/4/16/20 altitude and DF5/21 squawk, accepted via address/parity only for addresses already seen in a
@@ -152,12 +154,12 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET\|PUT\|DELETE /api/reference/aircraft/{icao}` | Your own data for an airframe: `registration`, `typeCode`, `typeName`, `operator` (each up to 64 characters). GET returns 404 when there is none, PUT returns the entry (204 and deletes it when every field is empty). 503 without history |
 | `GET\|PUT\|DELETE /api/reference/routes/{callsign}` | Your own route for a callsign (1–8 letters or digits): `origin`, `destination`, the same way |
 | `GET /api/storage` | Disk use of the state directory: volume size and free space, tape/database/other bytes, growth per day, steady-state sizes, days until full and until the disk guard, the oldest tape/flight/rollup, guard flags. Cached for 60 s |
-| `GET /api/stats/hourly?from=&to=` | Hourly rollups (aircraft ADS-B / Mode-S only, flights started, positions, messages, max range and bearing, sizes, receiver counters), plus the current hour so far (`partial`). Default the last 24 h; at most 400 days, clamped to `stats.retention` |
+| `GET /api/stats/hourly?from=&to=` | Hourly rollups (aircraft ADS-B / Mode-S only, ADS-B aircraft by position quality, flights started, positions, messages, max range and bearing, sizes, receiver counters), plus the current hour so far (`partial`). Default the last 24 h; at most 400 days, clamped to `stats.retention` |
 | `GET /api/stats/countries?from=&to=&limit=` | Aircraft-hours per country of registration, largest first (`limit` 20, max 500) |
 | `GET /api/stats/operators?from=&to=&limit=` | Aircraft-hours per callsign prefix (airline-style callsigns only) |
 | `GET /api/stats/range-daily?from=&to=&tz=` | The furthest position per day in the IANA timezone `tz` (default UTC), with its bearing and hour |
 | `GET /api/stats/altitude?from=&to=` | Stored positions per altitude band: ground, 5000 ft bands up to ≥40k, unknown |
-| `GET /api/stats/notable?from=&to=&limit=` | Emergency squawks and first sightings of ICAO addresses: counts and up to `limit` (100) events, emergencies first, then newest |
+| `GET /api/stats/notable?from=&to=&limit=` | Emergency squawks, position losses (`gnssLost`) and first sightings of ICAO addresses: counts and up to `limit` (100) events, emergencies first, then losses, then newest |
 | `GET /api/tape/extent` | The tape's oldest and newest recorded time and its recorded spans (silences over 60 s split them); 503 when the tape is disabled |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, or the source is still connected after delivering frames (`idle`: a quiet sky sends nothing); 503 before the first frame, or when the source is disconnected and silent. A decoder that stays connected but stops sending looks idle, so check `source.lastFrame` in `/api/stats` for that |
 
@@ -290,12 +292,16 @@ It refreshes once a minute and doesn't use the live WebSocket.
   every 5 s (more while turning or climbing), so this is close to the time spent at each altitude.
 - **Max range per day:** the furthest stored position each day, with the best day marked; useful for comparing
   antennas.
+- **ADS-B position quality:** ADS-B aircraft per hour by the worst position quality they reported in it: lost,
+  degraded, no position received at all (no loss reported, usually range or too few frames), or OK, with the share
+  lost or degraded as a line. A weekday × hour heatmap of that share shows recurring GNSS interference. Hours rolled
+  up before this was recorded are recomputed while their flights are stored, but without losses (none were kept).
 - **Receiver health:** frames per hour, the share failing CRC, and silent minutes (minutes without a single frame,
   whether the receiver died or the connection dropped) in red. The tooltip adds bit errors fixed, CPR rejections,
   reconnects and the mean signal level (Beast only). Like messages, these exist only for hours the service ran
   through from start to end.
-- **Notable aircraft:** emergency squawks (7500, 7600, 7700; when first seen in the flight) and ICAO addresses heard
-  for the first time. Each row opens playback at that moment with the aircraft selected. "First" means since the
+- **Notable aircraft:** emergency squawks (7500, 7600, 7700; when first seen in the flight), flights that lost their
+  position (first time in the flight) and ICAO addresses heard for the first time. Each row opens playback at that moment with the aircraft selected. "First" means since the
   flight history began: the first sightings of addresses are remembered for `stats.retention`, longer than flights.
   When upgrading an existing database, every aircraft already in it is "new" at its first stored flight, so the
   list becomes meaningful after a while.

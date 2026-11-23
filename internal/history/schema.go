@@ -89,6 +89,15 @@ var migrations = []string{
 		operator TEXT, updated INTEGER NOT NULL) WITHOUT ROWID;
 	CREATE TABLE routes (callsign TEXT PRIMARY KEY, origin TEXT, destination TEXT, updated INTEGER NOT NULL)
 		WITHOUT ROWID;`,
+
+	// ADS-B position quality per flight (ok, degraded, lost) from t on, and its hourly counts (rollup.go)
+	`CREATE TABLE position_quality (flight_id INTEGER NOT NULL REFERENCES flights(id), t INTEGER NOT NULL,
+		quality TEXT NOT NULL, PRIMARY KEY (flight_id, t)) WITHOUT ROWID;
+	CREATE INDEX position_quality_t ON position_quality(t);
+	ALTER TABLE hourly ADD COLUMN adsb_position_ok INTEGER;
+	ALTER TABLE hourly ADD COLUMN adsb_degraded INTEGER;
+	ALTER TABLE hourly ADD COLUMN adsb_lost INTEGER;
+	ALTER TABLE hourly ADD COLUMN adsb_no_position INTEGER;`,
 }
 
 // SchemaVersion is the schema version this build writes.

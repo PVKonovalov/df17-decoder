@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AltitudeBand, CountryCount, HourRow, Notable, OperatorCount, RangeDay, StorageReport } from '../api/stats'
 import { linkClick, navigate } from '../route'
-import { heatmap, momentSearch, topWithOther } from './aggregate'
+import { gnssShare, heatmap, momentSearch, topWithOther } from './aggregate'
 import { Chart } from './Chart'
-import { altitudeOption, healthOption, heatmapOption, hourlyOption, rangeOption, rankingOption } from './charts'
+import { altitudeOption, healthOption, heatmapOption, hourlyOption, qualityOption, rangeOption, rankingOption } from './charts'
 import type { ChartClick } from './echarts'
 import { parseRange, rangeSearch } from './range'
 import { NotableList } from './NotableList'
@@ -77,6 +77,8 @@ export default function StatsPage() {
 
   const rows = useMemo(() => (hourly.status === 'ok' ? hourly.data : []), [hourly])
   const hm = useMemo(() => heatmap(rows, tz), [rows, tz])
+  const gnssHm = useMemo(() => heatmap(rows, tz, gnssShare), [rows, tz])
+  const hasQuality = rows.some((r) => r.adsbPositionOk !== undefined)
   const top = useMemo(
     () => (countries.status === 'ok' ? topWithOther(countries.data.map((c) => ({ name: c.country, aircraftHours: c.aircraftHours })), TOP) : []),
     [countries],
@@ -95,13 +97,17 @@ export default function StatsPage() {
     () => ({
       hourly: hourlyNote === null ? hourlyOption(rows, theme, tz) : null,
       heatmap: hm.cells.length > 0 ? heatmapOption(hm, theme) : null,
+      quality: hasQuality ? qualityOption(rows, theme, tz) : null,
+      gnssHeatmap: gnssHm.cells.length > 0
+        ? heatmapOption(gnssHm, theme, (v) => `${v}% of ADS-B aircraft lost or degraded their position`, [theme.heatLow, theme.bad])
+        : null,
       countries: top.length > 0 ? rankingOption(top, theme, theme.adsb) : null,
       operators: topOps.length > 0 ? rankingOption(topOps, theme, theme.line) : null,
       altitude: hasAltitude ? altitudeOption(bands, theme) : null,
       health: hasHealth ? healthOption(rows, theme, tz) : null,
       range: dayList.length > 0 ? rangeOption(dayList, theme) : null,
     }),
-    [hourlyNote, rows, hm, top, topOps, bands, hasAltitude, hasHealth, dayList, theme, tz],
+    [hourlyNote, rows, hm, gnssHm, hasQuality, top, topOps, bands, hasAltitude, hasHealth, dayList, theme, tz],
   )
 
   const choose = (sel: Parameters<typeof rangeSearch>[1]) => {
@@ -187,6 +193,26 @@ export default function StatsPage() {
           }}
         />
         <Chart
+          title="ADS-B position quality"
+          hint="ADS-B aircraft per hour by what they reported about their own position, worst case in the hour: lost (TC 0, or no position for 30 s while other messages arrive), degraded (integrity NIC < 7 or accuracy NACp < 8, as under GNSS jamming), or no position received at all (often range or too few frames). The line is the share lost or degraded. Click a bar to replay the hour."
+          option={options.quality}
+          note={note(hourly, () => (hasQuality ? null : 'No position quality yet: it is recorded from this version on, for hours whose flights are still stored.'))}
+          onClick={(p: ChartClick) => {
+            openMoment(rows[p.dataIndex]?.hour)
+          }}
+        />
+        <Chart
+          title="GNSS problems × weekday"
+          hint={`Share of ADS-B aircraft that lost or degraded their position, ${tz} time. Recurring cells point at scheduled jamming. Click a cell to replay its latest hour.`}
+          option={options.gnssHeatmap}
+          note={note(hourly, () => (gnssHm.cells.length === 0 ? 'No full hours with position quality in this range yet.' : null))}
+          height={260}
+          onClick={(p: ChartClick) => {
+            const [h, d] = p.value as [number, number]
+            openMoment(gnssHm.latest.get(`${d}-${h}`))
+          }}
+        />
+        <Chart
           title="Receiver health"
           hint="Frames per hour, the share failing CRC, and minutes without a single frame (red). Hover for every counter. Click a bar to replay the hour."
           option={options.health}
@@ -202,7 +228,7 @@ export default function StatsPage() {
           {notable.status === 'ok' && notable.data.events.length > 0 ? (
             <NotableList notable={notable.data} />
           ) : (
-            <p className="stats-note">{note(notable, () => 'No emergencies or new aircraft in this range.') ?? ''}</p>
+            <p className="stats-note">{note(notable, () => 'No emergencies, position losses or new aircraft in this range.') ?? ''}</p>
           )}
         </section>
       </main>

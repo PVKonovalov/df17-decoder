@@ -32,7 +32,18 @@ type HourRow struct {
 	Reconnects      *int64    `json:"reconnects,omitempty"`
 	SilentMinutes   *int64    `json:"silentMinutes,omitempty"`
 	SignalDBFS      *float64  `json:"signalDbfs,omitempty"`
-	Partial         bool      `json:"partial,omitempty"`
+	// ADS-B aircraft by their worst position quality in the hour (they sum to AircraftADSB); nil for hours
+	// rolled up before position quality was recorded and no longer recomputable.
+	ADSBPositionOK *int `json:"adsbPositionOk,omitempty"`
+	ADSBDegraded   *int `json:"adsbDegraded,omitempty"`
+	ADSBLost       *int `json:"adsbLost,omitempty"`
+	ADSBNoPosition *int `json:"adsbNoPosition,omitempty"`
+	Partial        bool `json:"partial,omitempty"`
+}
+
+// setQuality fills the position quality columns from q.
+func (r *HourRow) setQuality(q qualityCounts) {
+	r.ADSBPositionOK, r.ADSBDegraded, r.ADSBLost, r.ADSBNoPosition = &q.ok, &q.degraded, &q.lost, &q.noPosition
 }
 
 // setLive fills the live columns from l (nil leaves them unknown).
@@ -53,9 +64,11 @@ type AltitudeBand struct {
 	Positions int    `json:"positions"`
 }
 
-// Notable is GET /api/stats/notable: event counts in the range and the events, emergencies first, newest first.
+// Notable is GET /api/stats/notable: event counts in the range and the events, emergencies first, then position
+// losses, then first sightings, each newest first.
 type Notable struct {
 	Emergencies int            `json:"emergencies"`
+	GNSSLost    int            `json:"gnssLost"`
 	FirstSeen   int            `json:"firstSeen"`
 	Events      []NotableEvent `json:"events"`
 }
@@ -108,6 +121,7 @@ func (s *Store) current(ctx context.Context, now time.Time) (HourRow, hourStats,
 	}
 	row := HourRow{Hour: start, AircraftADSB: hs.adsb, AircraftModeS: hs.modes, FlightsStarted: hs.started,
 		Positions: hs.positions, MaxRangeNm: hs.maxRange, MaxRangeBearing: hs.bearing, Partial: true}
+	row.setQuality(hs.quality)
 	if src := s.src.Load(); src != nil {
 		if src.Counters != nil {
 			row.setLive(s.live.since(start, src.Counters()))
@@ -129,7 +143,8 @@ func includesCurrent(from, to, now time.Time) bool {
 func (s *Store) Hourly(ctx context.Context, from, to, now time.Time) ([]HourRow, error) {
 	rows, err := s.ro.QueryContext(ctx, `SELECT hour, aircraft_adsb, aircraft_modes, flights_started, positions,
 		messages, max_range_nm, max_range_bearing, db_bytes, tape_bytes, frames, crc_failures, fixed_bit_errors,
-		cpr_rejected, reconnects, silent_minutes, signal_dbfs FROM hourly WHERE hour >= ? AND hour < ?
+		cpr_rejected, reconnects, silent_minutes, signal_dbfs, adsb_position_ok, adsb_degraded, adsb_lost,
+		adsb_no_position FROM hourly WHERE hour >= ? AND hour < ?
 		ORDER BY hour`, from.UTC().Truncate(time.Hour).Unix(), to.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("history: %w", err)
@@ -141,9 +156,10 @@ func (s *Store) Hourly(ctx context.Context, from, to, now time.Time) ([]HourRow,
 		var r HourRow
 		var h int64
 		var msgs, db, tape, frames, crc, fixed, cpr, rec, silent sql.NullInt64
+		var qOK, qDegraded, qLost, qNone sql.NullInt64
 		var rng, brg, sig sql.NullFloat64
 		if err := rows.Scan(&h, &r.AircraftADSB, &r.AircraftModeS, &r.FlightsStarted, &r.Positions, &msgs, &rng,
-			&brg, &db, &tape, &frames, &crc, &fixed, &cpr, &rec, &silent, &sig); err != nil {
+			&brg, &db, &tape, &frames, &crc, &fixed, &cpr, &rec, &silent, &sig, &qOK, &qDegraded, &qLost, &qNone); err != nil {
 			return nil, fmt.Errorf("history: %w", err)
 		}
 		r.Hour = time.Unix(h, 0).UTC()
@@ -154,6 +170,9 @@ func (s *Store) Hourly(ctx context.Context, from, to, now time.Time) ([]HourRow,
 		r.MaxRangeNm, r.MaxRangeBearing = nullFloat(rng), nullFloat(brg)
 		r.Frames, r.CRCFailures, r.FixedBitErrors = nullInt(frames), nullInt(crc), nullInt(fixed)
 		r.CPRRejected, r.Reconnects, r.SilentMinutes, r.SignalDBFS = nullInt(cpr), nullInt(rec), nullInt(silent), nullFloat(sig)
+		if qOK.Valid && qDegraded.Valid && qLost.Valid && qNone.Valid {
+			r.setQuality(qualityCounts{int(qOK.Int64), int(qDegraded.Int64), int(qLost.Int64), int(qNone.Int64)})
+		}
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -379,12 +398,15 @@ func (s *Store) AltitudeBands(ctx context.Context, from, to, now time.Time) ([]A
 	return out, nil
 }
 
-// rank orders emergencies before first sightings.
+// rank orders emergencies before position losses before first sightings.
 func rank(e NotableEvent) int {
-	if e.Kind == KindEmergency {
+	switch e.Kind {
+	case KindEmergency:
 		return 0
+	case KindGNSSLost:
+		return 1
 	}
-	return 1
+	return 2
 }
 
 // NotableEvents returns the counts of notable events in [from, to) and at most limit of them, emergencies first,
@@ -424,9 +446,12 @@ func (s *Store) NotableEvents(ctx context.Context, from, to, now time.Time, limi
 		}
 	}
 	for _, e := range all {
-		if e.Kind == KindEmergency {
+		switch e.Kind {
+		case KindEmergency:
 			out.Emergencies++
-		} else {
+		case KindGNSSLost:
+			out.GNSSLost++
+		default:
 			out.FirstSeen++
 		}
 	}

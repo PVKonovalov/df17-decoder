@@ -11,6 +11,7 @@ export interface ChartTheme {
   line: string
   other: string
   bad: string
+  warn: string
   heatLow: string
   heatHigh: string
 }
@@ -25,6 +26,7 @@ const TOKENS: Record<keyof ChartTheme, [string, string]> = {
   line: ['--chart-line', '#8250df'],
   other: ['--chart-other', '#9aa4b2'],
   bad: ['--bad', '#cf222e'],
+  warn: ['--warn', '#b26b00'],
   heatLow: ['--chart-heat-low', '#eef3fb'],
   heatHigh: ['--chart-heat-high', '#1f5fb8'],
 }

@@ -56,14 +56,16 @@ const (
 	eventFlight eventKind = iota
 	eventPoint
 	eventSample
+	eventQuality
 )
 
 type event struct {
-	kind   eventKind
-	id     int64
-	flight tracker.FlightInfo
-	point  tracker.TrackPoint
-	sample tracker.Sample
+	kind    eventKind
+	id      int64
+	flight  tracker.FlightInfo
+	point   tracker.TrackPoint
+	sample  tracker.Sample
+	quality tracker.QualityChange
 }
 
 // Store is a tracker.FlightSink writing to SQLite. The sink methods never block: they queue the event, or drop
@@ -273,6 +275,10 @@ func (s *Store) Sample(id int64, smp tracker.Sample) {
 	s.enqueue(event{kind: eventSample, id: id, sample: smp})
 }
 
+func (s *Store) Quality(id int64, q tracker.QualityChange) {
+	s.enqueue(event{kind: eventQuality, id: id, quality: q})
+}
+
 func (s *Store) enqueue(ev event) {
 	select {
 	case s.queue <- ev:
@@ -408,6 +414,11 @@ func (s *Store) write(batch []event) (n int, err error) {
 		return 0, err
 	}
 
+	insQuality, err := tx.Prepare(`INSERT OR REPLACE INTO position_quality(flight_id, t, quality) VALUES(?, ?, ?)`)
+	if err != nil {
+		return 0, err
+	}
+
 	aggs := map[int64]*flightAgg{}
 	agg := func(id int64) *flightAgg {
 		a := aggs[id]
@@ -449,6 +460,8 @@ func (s *Store) write(batch []event) (n int, err error) {
 			if _, err = insSample.Exec(ev.id, smp.T, alt, nullString(smp.Squawk)); err == nil {
 				agg(ev.id).add(smp.T, alt)
 			}
+		case eventQuality:
+			_, err = insQuality.Exec(ev.id, ev.quality.T, string(ev.quality.Quality))
 		}
 		if err != nil {
 			return 0, err
@@ -464,7 +477,7 @@ func (s *Store) write(batch []event) (n int, err error) {
 	return n, tx.Commit()
 }
 
-// prune deletes closed flights (with their positions and samples) last seen before now - Retention, then
+// prune deletes closed flights (with their positions, samples and position quality) last seen before now - Retention, then
 // returns free pages to the file system.
 func (s *Store) prune() {
 	if s.opt.Retention <= 0 {
@@ -499,6 +512,7 @@ func (s *Store) deleteBefore(cutoff int64) (n int64, err error) {
 	for _, q := range []string{
 		`DELETE FROM positions WHERE flight_id IN (` + old + `)`,
 		`DELETE FROM samples WHERE flight_id IN (` + old + `)`,
+		`DELETE FROM position_quality WHERE flight_id IN (` + old + `)`,
 	} {
 		if _, err = tx.Exec(q, cutoff); err != nil {
 			return 0, err

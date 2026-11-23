@@ -24,6 +24,7 @@ describe('DetailPanel', () => {
     expect(labels).toContain('Altitude (baro)')
     expect(labels).not.toContain('Callsign')
     expect(labels).not.toContain('Position')
+    expect(labels).not.toContain('Position quality')
     expect(Object.fromEntries(detailRows(minimal))['Altitude (baro)']).toBe('0 ft')
     expect(Object.fromEntries(detailRows(minimal)).Transponder).toBe('Mode S only')
   })
@@ -42,6 +43,13 @@ describe('DetailPanel', () => {
     expect(rows.Mach).toBe('0.784')
     expect(rows.Roll).toBe('12.3° left')
     expect(Object.fromEntries(detailRows({ ...minimal, roll: 0 })).Roll).toBe('0.0°')
+  })
+
+  it('marks a lost position', () => {
+    render(<DetailPanel aircraft={{ ...fixture, positionQuality: 'lost', nic: 0, nacp: 0 }} dispatch={vi.fn()} />)
+    const quality = screen.getByText('Lost (no position from the aircraft)')
+    expect(quality.className).toBe('quality lost')
+    expect(quality.parentElement?.textContent).toBe('Lost (no position from the aircraft) · NIC 0 · NACp 0')
   })
 
   it('shows the autopilot row when modes are known but none is engaged', () => {

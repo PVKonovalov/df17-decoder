@@ -54,11 +54,13 @@ func (s Sample) due(prev Sample) bool {
 
 // FlightSink receives flight events from the tracker's writer goroutine, under its lock: implementations must
 // not block. Flight is sent when a flight opens, when its callsign, squawk, category or ADS-B flag changes,
-// and when it closes (Closed set). A Sample with the time of the previous one replaces it.
+// and when it closes (Closed set). A Sample with the time of the previous one replaces it. Quality is sent when an
+// ADS-B flight's position quality changes, and first when it becomes known on the flight.
 type FlightSink interface {
 	Flight(f FlightInfo)
 	Point(flightID int64, p TrackPoint)
 	Sample(flightID int64, s Sample)
+	Quality(flightID int64, q QualityChange)
 }
 
 // ResumedFlight is a flight the previous run left open, with its stored trail (oldest first).
@@ -72,6 +74,7 @@ type flight struct {
 	trail   []TrackPoint
 	sample  Sample
 	sampled bool
+	quality Quality // the last one sent
 }
 
 // flightFor returns the open flight of icao at data time at, closing one that ended more than TTL+FlightGap ago
@@ -149,6 +152,12 @@ func (t *Tracker) syncFlight(icao uint32, e *entry, at time.Time) {
 	}
 
 	if a.ADSB {
+		if q := a.PositionQuality; q != "" && q != f.quality {
+			f.quality = q
+			if t.opt.Flights != nil {
+				t.opt.Flights.Quality(f.info.ID, QualityChange{T: at.UnixMilli(), Quality: q})
+			}
+		}
 		return
 	}
 	s := Sample{T: at.UnixMilli(), Squawk: a.Squawk}
