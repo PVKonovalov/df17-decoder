@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/tape"
 	"gopkg.in/yaml.v3"
 )
@@ -58,10 +59,41 @@ type Source struct {
 	ReplaySpeed  float64  `yaml:"replaySpeed"`
 }
 
+// Receiver is the receiver position (AIP DMS or decimal degrees) and range. YAML keys: lat, lon, maxRangeNm.
 type Receiver struct {
-	Lat        float64 `yaml:"lat"`
-	Lon        float64 `yaml:"lon"`
-	MaxRangeNm float64 `yaml:"maxRangeNm"`
+	Lat        geo.Latitude
+	Lon        geo.Longitude
+	MaxRangeNm float64
+
+	errs []string
+}
+
+// Point returns the receiver position in decimal degrees.
+func (r Receiver) Point() geo.Point { return geo.Point{Lat: r.Lat.Degrees(), Lon: r.Lon.Degrees()} }
+
+func (r *Receiver) UnmarshalYAML(n *yaml.Node) error {
+	coord := func(field string, parse func(string) error) func(*yaml.Node) error {
+		return coordField(parse, func(value string, err error) {
+			r.errs = append(r.errs, fmt.Sprintf("receiver.%s %q: %v", field, value, err))
+		})
+	}
+	return decodeMapping(n, map[string]func(*yaml.Node) error{
+		"lat": coord("lat", func(s string) error {
+			v, err := geo.ParseLatitude(s)
+			if err == nil {
+				r.Lat = v
+			}
+			return err
+		}),
+		"lon": coord("lon", func(s string) error {
+			v, err := geo.ParseLongitude(s)
+			if err == nil {
+				r.Lon = v
+			}
+			return err
+		}),
+		"maxRangeNm": func(v *yaml.Node) error { return v.Decode(&r.MaxRangeNm) },
+	})
 }
 
 type Decoder struct {
@@ -115,12 +147,15 @@ type API struct {
 	StreamInterval Duration `yaml:"streamInterval"`
 }
 
-// Map configures the web UI's tile layer (any XYZ tile server).
+// Map configures the web UI's tile layer (any XYZ tile server) and the waypoints drawn on it.
 type Map struct {
-	TileURL     string `yaml:"tileUrl"`
-	Attribution string `yaml:"attribution"`
-	MaxZoom     int    `yaml:"maxZoom"`
-	DarkFilter  bool   `yaml:"darkFilter"`
+	TileURL              string     `yaml:"tileUrl"`
+	Attribution          string     `yaml:"attribution"`
+	MaxZoom              int        `yaml:"maxZoom"`
+	DarkFilter           bool       `yaml:"darkFilter"`
+	Waypoints            []Waypoint `yaml:"waypoints"`
+	WaypointsFile        string     `yaml:"waypointsFile"` // relative to the config file's directory
+	WaypointLabelMinZoom int        `yaml:"waypointLabelMinZoom"`
 }
 
 // Coverage configures the range outline (furthest position per bearing).
@@ -147,7 +182,7 @@ func Default() Config {
 			ReconnectMax: Duration(30 * time.Second),
 			ReplaySpeed:  1.0,
 		},
-		Receiver: Receiver{Lat: 25.07, Lon: 22.87, MaxRangeNm: 300},
+		Receiver: Receiver{Lat: geo.Lat(25.07), Lon: geo.Lon(22.87), MaxRangeNm: 300},
 		Decoder:  Decoder{CPRPairMaxAge: Duration(10 * time.Second)},
 		Tracker:  Tracker{TTL: Duration(60 * time.Second), KnownAddressTTL: Duration(60 * time.Second)},
 		Trails:   Trails{Window: Duration(10 * time.Minute), MinInterval: Duration(5 * time.Second)},
@@ -169,10 +204,12 @@ func Default() Config {
 		Stats:    Stats{Retention: Duration(8760 * time.Hour)},
 		API:      API{Listen: ":8080", StreamInterval: Duration(time.Second)},
 		Map: Map{
-			TileURL:     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-			Attribution: `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`,
-			MaxZoom:     19,
-			DarkFilter:  true,
+			TileURL:              "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+			Attribution:          `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`,
+			MaxZoom:              19,
+			DarkFilter:           true,
+			Waypoints:            []Waypoint{},
+			WaypointLabelMinZoom: 9,
 		},
 		Log: Log{Level: "info", Format: "text"},
 	}
@@ -185,6 +222,19 @@ func Load(path string, ov Overrides) (Config, error) {
 	if path != "" {
 		if err := decodeFile(path, &cfg); err != nil {
 			return cfg, err
+		}
+		for i := range cfg.Map.Waypoints {
+			cfg.Map.Waypoints[i].ref = fmt.Sprintf("map.waypoints[%d]", i)
+		}
+		if f := cfg.Map.WaypointsFile; f != "" {
+			if !filepath.IsAbs(f) {
+				f = filepath.Join(filepath.Dir(path), f)
+			}
+			wps, err := readWaypoints(f, filepath.Base(f))
+			if err != nil {
+				return cfg, fmt.Errorf("config %s: map.waypointsFile: %w", path, err)
+			}
+			cfg.Map.Waypoints = append(cfg.Map.Waypoints, wps...)
 		}
 	}
 
@@ -232,8 +282,12 @@ func (c Config) Validate() error {
 	check(c.Source.ReconnectMax >= c.Source.ReconnectMin, "source.reconnectMax (%s) must be >= source.reconnectMin (%s)", c.Source.ReconnectMax.D(), c.Source.ReconnectMin.D())
 	check(c.Source.ReplaySpeed >= 0, "source.replaySpeed must be >= 0, got %g", c.Source.ReplaySpeed)
 
-	check(c.Receiver.Lat >= -90 && c.Receiver.Lat <= 90, "receiver.lat must be in [-90, 90], got %g", c.Receiver.Lat)
-	check(c.Receiver.Lon >= -180 && c.Receiver.Lon <= 180, "receiver.lon must be in [-180, 180], got %g", c.Receiver.Lon)
+	for _, e := range c.Receiver.errs {
+		errs = append(errs, errors.New(e))
+	}
+	lat, lon := c.Receiver.Lat.Degrees(), c.Receiver.Lon.Degrees()
+	check(lat >= -90 && lat <= 90, "receiver.lat must be in [-90, 90], got %g", lat)
+	check(lon >= -180 && lon <= 180, "receiver.lon must be in [-180, 180], got %g", lon)
 	check(c.Receiver.MaxRangeNm > 0, "receiver.maxRangeNm must be positive, got %g", c.Receiver.MaxRangeNm)
 
 	check(c.Decoder.CPRPairMaxAge > 0, "decoder.cprPairMaxAge must be positive, got %s", c.Decoder.CPRPairMaxAge.D())
@@ -279,6 +333,8 @@ func (c Config) Validate() error {
 		check(strings.Contains(c.Map.TileURL, p), "map.tileUrl must contain %s, got %q", p, c.Map.TileURL)
 	}
 	check(c.Map.MaxZoom >= 1 && c.Map.MaxZoom <= 22, "map.maxZoom must be in [1, 22], got %d", c.Map.MaxZoom)
+	check(c.Map.WaypointLabelMinZoom >= 1 && c.Map.WaypointLabelMinZoom <= 22, "map.waypointLabelMinZoom must be in [1, 22], got %d", c.Map.WaypointLabelMinZoom)
+	errs = append(errs, validateWaypoints(c.Map.Waypoints)...)
 	if c.Coverage.File != "" {
 		if err := checkWritableDir(filepath.Dir(c.Coverage.File)); err != nil {
 			errs = append(errs, fmt.Errorf("coverage.file %q: %w", c.Coverage.File, err))

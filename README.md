@@ -49,6 +49,9 @@ receiver:
   lon: 11.89
 ```
 
+The receiver position takes decimal degrees or the AIP format (`201124.00N`, `0115324.00E`), see
+[Waypoints](#waypoints).
+
 ```sh
 go run ./cmd/df17-decoder -config config/config.yaml
 go run ./cmd/df17-decoder -config config/config.yaml -log-level debug   # override log.level
@@ -143,7 +146,7 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/stats` | Version, source state, frame counts per DF, CRC failures, drops, CPR rejections, messages/s |
 | `GET /api/stream` | Server-Sent Events: the aircraft array every `api.streamInterval` |
 | `GET /api/ws` | WebSocket used by the UI: `{"type","data"}` messages, `receiver`, `map` and `trails` (every current trail and the window) once, `coverage` every 10 s, `coverageGrid` every 60 s, `trailPoints` (only points this connection hasn't had), `aircraft`, `stats` and (with playback) `playback` every `api.streamInterval`. The client may send playback commands, see [Playback](#playback) |
-| `GET /api/map` | Tile layer for the UI from the `map` config section |
+| `GET /api/map` | Tile layer and waypoints for the UI from the `map` config section: `waypoints` as `{name, lat, lon, latDms, lonDms, icon, color?, note?}` (decimal degrees plus the AIP text), `waypointLabelMinZoom` |
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /api/coverage` | Range outline: the furthest accepted position per 2° of bearing (distance, point, altitude, time) |
 | `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
@@ -415,6 +418,8 @@ there's nothing else to deploy.
   the icons currently on the map, and the detail panel names the category, e.g. "A3 (large)".
   The browser loads the tiles itself, from openstreetmap.org by default, so the map needs internet access
   unless you use your own tile server (see below).
+- **Waypoints:** named fixes from the config, drawn under all traffic in live and playback, see
+  [Waypoints](#waypoints).
 - **Table:** every aircraft, including Mode-S-only ones (marked "no pos"), with its map icon in the same color
   (altitude or signal, as chosen in the legend) and turned to its track. Every column sorts, with unknown
   values last. Emergencies (7500/7600/7700 or an ADS-B emergency state) are red and pinned to the top.
@@ -476,6 +481,92 @@ Tips for a self-hosted server:
 - **When tiles don't appear,** check the tile requests in the browser's network tab for the URL and status
   code.
 
+### Waypoints
+
+List navigation fixes (named points from the AIP) in the `map` section, and the map shows them as small chart
+symbols under the aircraft, trails and coverage, in live and playback modes. They never get in the way of the
+traffic: clicks go through to the map and the aircraft.
+
+```yaml
+map:
+  waypoints:
+    - name: ALPHA              # 1–12 characters, unique (case-insensitive)
+      lat: 250412.00N          # AIP DMS, pasted from the AIP
+      lon: 0225218.00E
+      icon: star
+    - name: BRAVO
+      lat: 25.12               # or decimal degrees
+      lon: 22.95
+      icon: diamond
+      color: "#f80"            # optional, #rgb or #rrggbb; default: a theme color for light and dark maps
+      note: fictional fix      # optional, shown in the tooltip
+  waypointLabelMinZoom: 9      # names from this zoom up, symbols only below
+```
+
+These points are fictional; see the privacy note below.
+
+**Coordinates**, for `lat`/`lon` of waypoints and of the receiver:
+
+| Format | Latitude | Longitude |
+|---|---|---|
+| AIP DMS | `DDMMSS[.s]N` or `S`: `250412.00N`, `250412N`, `335130.5s` | `DDDMMSS[.s]E` or `W`: `0225218.00E`, `1511234W` |
+| Decimal degrees | `25.07`, `-33.86`, `"25.07"` | `22.87`, `-151.21` |
+
+The DMS degrees have exactly 2 digits for a latitude and 3 for a longitude, the minutes and seconds must be
+below 60, and the hemisphere letter is required (either case; S and W are negative). Fractional seconds are
+optional. A hemisphere letter on the wrong axis (`250412E` as a latitude) is an error, as is a decimal value
+outside ±90°/±180°. A value like `2505.30` (degrees and minutes) is not accepted. Errors name the entry, and all
+of them are listed together:
+
+```
+map.waypoints[3] (BRAVO): lat "326015N": minutes must be < 60
+map.waypoints[4] (CHARLIE): icon "pentagon" is not one of triangle, triangleOpen, star, …
+waypoints.yaml[12] (alpha): duplicate name, also map.waypoints[0] (ALPHA)
+```
+
+**Icons** (`icon`, case-insensitive, default `triangle`):
+
+| Name | Symbol | Typical use |
+|---|---|---|
+| `triangle` | filled triangle | compulsory reporting point |
+| `triangleOpen` | outlined triangle | on-request reporting point |
+| `star` | four-pointed star | RNAV waypoint |
+| `diamond` | diamond | fix or intersection |
+| `circle` | filled circle | generic point |
+| `circleOpen` | outlined circle | airport or airfield |
+| `square` | outlined square | DME |
+| `hexagon` | outlined hexagon | VOR |
+| `cross` | ✕ | obstacle or hazard |
+| `flag` | small flag | visual reporting point |
+
+**Hover** a symbol for its name, its coordinates as configured and in decimal degrees, the distance and bearing
+from the receiver, and the note. The legend's **Waypoints** checkbox hides them; each browser remembers it, and
+the checkbox only appears when there are waypoints.
+
+**A separate file.** AIP lists can have hundreds of points. Put them in their own YAML file, a plain list in the
+same format (no `waypoints:` key), and point `map.waypointsFile` to it:
+
+```yaml
+map:
+  waypointsFile: waypoints-local.yaml   # relative to the config file's directory
+```
+
+```yaml
+# config/waypoints-local.yaml
+- name: ALPHA
+  lat: 250412.00N
+  lon: 0225218.00E
+  icon: star
+```
+
+Its entries are added to the inline list, and names must be unique across both. Changes take effect after a
+restart.
+
+**Privacy.** Real waypoints near your receiver reveal where it is as clearly as its coordinates do. Keep them in
+your gitignored `config/config.yaml` or in a `config/waypoints*.yaml` file, which `.gitignore` and
+`.dockerignore` exclude. Don't put them in issues, screenshots or committed files. The examples here, the tests
+and the demo use fictional points around the placeholder receiver.
+
 ### Building
 
 ```sh
@@ -513,7 +604,8 @@ Mode-S-only (half of them also answer Comm-B with BDS 4,0/5,0/6,0), one squawks 
 airfield 6 nm north-east of the receiver (surface positions, "GND" on the map), one in three of them a service
 vehicle (C2). ADS-B aircraft get a mix of emitter categories (mostly large, then heavy, small, light, some
 helicopters, fast jets, a glider, a balloon and a UAV), so every map icon shows up; the light ones fly low and slow
-under registration callsigns. Flags such as `-n`, `-taxiing`,
+under registration callsigns. `config/demo.yaml` also has ten fictional waypoints, one of each icon, including
+the demo airfield. Flags such as `-n`, `-taxiing`,
 `-duration`, `-arrivals`, `-departures`, `-modes-only`, `-range`, `-lat` and `-lon` change this
 (`go run ./cmd/replaygen -h`).
 

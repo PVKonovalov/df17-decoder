@@ -37,10 +37,24 @@ type Receiver struct {
 
 // MapConfig is the web UI tile layer served on /api/map and in the "map" WebSocket message.
 type MapConfig struct {
-	TileURL     string `json:"tileUrl"`
-	Attribution string `json:"attribution"`
-	MaxZoom     int    `json:"maxZoom"`
-	DarkFilter  bool   `json:"darkFilter"`
+	TileURL              string     `json:"tileUrl"`
+	Attribution          string     `json:"attribution"`
+	MaxZoom              int        `json:"maxZoom"`
+	DarkFilter           bool       `json:"darkFilter"`
+	WaypointLabelMinZoom int        `json:"waypointLabelMinZoom"`
+	Waypoints            []Waypoint `json:"waypoints"`
+}
+
+// Waypoint is a configured fix: decimal degrees, plus the AIP DMS text for the tooltip.
+type Waypoint struct {
+	Name   string  `json:"name"`
+	Lat    float64 `json:"lat"`
+	Lon    float64 `json:"lon"`
+	LatDMS string  `json:"latDms"`
+	LonDMS string  `json:"lonDms"`
+	Icon   string  `json:"icon"`
+	Color  string  `json:"color,omitempty"`
+	Note   string  `json:"note,omitempty"`
 }
 
 // Deps are the read-only views the API serves.
@@ -80,6 +94,9 @@ func New(d Deps) http.Handler {
 	}
 	if d.Coverage == nil {
 		d.Coverage = coverage.New(geo.Point{Lat: d.Receiver.Lat, Lon: d.Receiver.Lon})
+	}
+	if d.Map.Waypoints == nil {
+		d.Map.Waypoints = []Waypoint{}
 	}
 	if d.CoverageInterval <= 0 {
 		d.CoverageInterval = defaultCoverageInterval

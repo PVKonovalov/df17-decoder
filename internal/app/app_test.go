@@ -30,7 +30,7 @@ func captureConfig() config.Config {
 	cfg.Source.URL = "file://../../testdata/capture.txt"
 	cfg.Source.ReplaySpeed = 0
 	cfg.Decoder.FixSingleBitErrors = true
-	cfg.Receiver.Lat, cfg.Receiver.Lon = 52.0, 4.4 // the mode-s.org vectors were recorded near Delft
+	cfg.Receiver.Lat, cfg.Receiver.Lon = geo.Lat(52.0), geo.Lon(4.4) // the mode-s.org vectors were recorded near Delft
 	cfg.API.Listen = "127.0.0.1:0"
 	return cfg
 }
@@ -287,7 +287,7 @@ func TestRun_SavesAndReloadsCoverage(t *testing.T) {
 	if n := len(svc2.Coverage.Snapshot().Points); n != 2 || !strings.Contains(log.String(), "coverage loaded") {
 		t.Errorf("reloaded %d points; log %s", n, log)
 	}
-	cfg.Receiver.Lat = 51
+	cfg.Receiver.Lat = geo.Lat(51)
 	svc3, log := newService(t, cfg)
 	if n := len(svc3.Coverage.Snapshot().Points); n != 0 || !strings.Contains(log.String(), "another receiver position") {
 		t.Errorf("moved receiver: %d points; log %s", n, log)
@@ -409,5 +409,38 @@ func TestRun_RecordsTape(t *testing.T) {
 	})
 	if len(segs) == 0 || strings.HasSuffix(segs[0], ".part") {
 		t.Errorf("segments %v", segs)
+	}
+}
+
+func TestMapConfig_Waypoints(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+map:
+  waypoints:
+    - {name: ALPHA, lat: 250412.00N, lon: 0225218.00E, icon: Star}
+    - {name: BRAVO, lat: 25.12, lon: 22.95, icon: TriangleOpen, color: "#f80", note: fictional}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(mapConfig(cfg.Map))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"waypointLabelMinZoom":9`,
+		`{"name":"ALPHA","lat":25.07,"lon":22.871666666666666,"latDms":"250412.00N","lonDms":"0225218.00E","icon":"star"}`,
+		`{"name":"BRAVO","lat":25.12,"lon":22.95,"latDms":"250712.00N","lonDms":"0225700.00E","icon":"triangleOpen","color":"#f80","note":"fictional"}`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s\ndoes not contain %s", data, want)
+		}
+	}
+
+	if data, _ := json.Marshal(mapConfig(config.Default().Map)); !strings.Contains(string(data), `"waypoints":[]`) {
+		t.Errorf("no waypoints: %s", data)
 	}
 }

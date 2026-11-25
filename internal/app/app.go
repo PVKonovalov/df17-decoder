@@ -16,7 +16,6 @@ import (
 	"github.com/PVKonovalov/df17-decoder/internal/api"
 	"github.com/PVKonovalov/df17-decoder/internal/config"
 	"github.com/PVKonovalov/df17-decoder/internal/coverage"
-	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/history"
 	"github.com/PVKonovalov/df17-decoder/internal/modes"
 	"github.com/PVKonovalov/df17-decoder/internal/playback"
@@ -85,7 +84,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 		return nil, err
 	}
 
-	receiver := geo.Point{Lat: cfg.Receiver.Lat, Lon: cfg.Receiver.Lon}
+	receiver := cfg.Receiver.Point()
 	cov := coverage.New(receiver)
 	if cfg.Coverage.File != "" {
 		var discarded bool
@@ -274,12 +273,9 @@ func (s *Service) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Handler: api.New(api.Deps{
 			Receiver: api.Receiver{
-				Lat: s.cfg.Receiver.Lat, Lon: s.cfg.Receiver.Lon, MaxRangeNm: s.cfg.Receiver.MaxRangeNm,
+				Lat: s.cfg.Receiver.Lat.Degrees(), Lon: s.cfg.Receiver.Lon.Degrees(), MaxRangeNm: s.cfg.Receiver.MaxRangeNm,
 			},
-			Map: api.MapConfig{
-				TileURL: s.cfg.Map.TileURL, Attribution: s.cfg.Map.Attribution,
-				MaxZoom: s.cfg.Map.MaxZoom, DarkFilter: s.cfg.Map.DarkFilter,
-			},
+			Map:            mapConfig(s.cfg.Map),
 			UI:             web.Dist(),
 			Tracker:        s.Tracker,
 			Coverage:       s.Coverage,
@@ -380,6 +376,21 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 // saveCoverage saves the coverage file, logging a failure only when it starts and again when saving recovers.
+// mapConfig converts the map section for the API: waypoints in decimal degrees plus their DMS text.
+func mapConfig(m config.Map) api.MapConfig {
+	wps := make([]api.Waypoint, len(m.Waypoints))
+	for i, w := range m.Waypoints {
+		wps[i] = api.Waypoint{
+			Name: w.Name, Lat: w.Lat.Degrees(), Lon: w.Lon.Degrees(), LatDMS: w.Lat.DMS(), LonDMS: w.Lon.DMS(),
+			Icon: w.Icon, Color: w.Color, Note: w.Note,
+		}
+	}
+	return api.MapConfig{
+		TileURL: m.TileURL, Attribution: m.Attribution, MaxZoom: m.MaxZoom, DarkFilter: m.DarkFilter,
+		WaypointLabelMinZoom: m.WaypointLabelMinZoom, Waypoints: wps,
+	}
+}
+
 func (s *Service) saveCoverage() {
 	err := s.Coverage.Save(s.cfg.Coverage.File)
 	switch {

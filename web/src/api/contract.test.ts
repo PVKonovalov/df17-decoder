@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from './aircraft.fixture.json'
+import mapFixture from './map.fixture.json'
 import pointFixture from './trackpoint.fixture.json'
 import statsFixture from './stats.fixture.json'
 import {
@@ -19,7 +20,15 @@ import {
   type RangeDay,
   type StorageReport,
 } from './stats'
-import { aircraftKeys, trackPointKeys, type Aircraft, type TrackPoint } from './types'
+import {
+  aircraftKeys,
+  mapConfigKeys,
+  trackPointKeys,
+  waypointKeys,
+  type Aircraft,
+  type MapConfig,
+  type TrackPoint,
+} from './types'
 
 // The same fixture is checked against tracker.Aircraft by internal/api TestAircraftContract,
 // so any drift between Go and TypeScript breaks one of the two tests.
@@ -44,6 +53,19 @@ describe('TrackPoint contract', () => {
   it('accepts the fixture as a TrackPoint', () => {
     const p: TrackPoint = pointFixture
     expect(p.alt).toBe(12000)
+  })
+})
+
+// Checked against api.MapConfig and api.Waypoint by internal/api TestMapContract.
+describe('MapConfig contract', () => {
+  it('has exactly the fixture keys', () => {
+    expect(Object.keys(mapConfigKeys).sort()).toEqual(Object.keys(mapFixture).sort())
+    expect(Object.keys(waypointKeys).sort()).toEqual(Object.keys(mapFixture.waypoints[0] ?? {}).sort())
+  })
+
+  it('accepts the fixture as a MapConfig', () => {
+    const m: MapConfig = mapFixture
+    expect([m.waypointLabelMinZoom, m.waypoints[0]?.latDms]).toEqual([9, '250412.00N'])
   })
 })
 

@@ -5,10 +5,11 @@ import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEv
 import type { Action, State } from '../state/reducer'
 import { AircraftLayer } from './AircraftLayer'
 import { ICON_ORDER, ICONS, iconFor, iconSvg, type IconKind } from './icons'
-import { type CoverageView, useColorMode, useCoverageView, useHeatBand } from './prefs'
+import { type CoverageView, useColorMode, useCoverageView, useHeatBand, usePanel } from './prefs'
 import { CoverageLayer } from './CoverageLayer'
 import { HEAT_BANDS, type HeatBand, hasSignal as gridHasSignal } from './heatmap'
 import { HeatmapLayer } from './HeatmapLayer'
+import { WaypointLayer } from './WaypointLayer'
 import {
   ALT_MAX_FT,
   altitudeColor,
@@ -44,6 +45,7 @@ export function LiveMap(props: Props) {
   const setColorMode = props.onColorMode ?? setStoredMode
   const [chosenView, setCoverageView] = useCoverageView()
   const [band, setBand] = useHeatBand()
+  const [showWaypoints, setShowWaypoints] = usePanel('waypoints')
   const heatSignal = useMemo(() => gridHasSignal(state.coverageGrid), [state.coverageGrid])
   const hasSignal = useMemo(() => [...state.aircraft.values()].some((a) => a.rssi !== undefined), [state.aircraft])
   const colorMode = hasSignal ? chosenMode : 'altitude'
@@ -79,6 +81,9 @@ export function LiveMap(props: Props) {
           pathOptions={{ className: 'receiver', fillOpacity: 1, weight: 2 }}
           interactive={false}
         />
+        {showWaypoints && (
+          <WaypointLayer waypoints={tiles.waypoints} labelMinZoom={tiles.waypointLabelMinZoom} receiver={receiver} />
+        )}
         {(coverageView === 'signal' || coverageView === 'count') && (
           <HeatmapLayer grid={state.coverageGrid} metric={coverageView} band={band} />
         )}
@@ -104,6 +109,8 @@ export function LiveMap(props: Props) {
           heatSignal={heatSignal}
           band={band}
           onBand={setBand}
+          waypoints={showWaypoints}
+          onWaypoints={tiles.waypoints.length > 0 ? setShowWaypoints : undefined}
         />
       )}
     </div>
@@ -206,7 +213,8 @@ const COVERAGE_VIEWS: readonly { view: CoverageView; label: string }[] = [
 /**
  * MapLegend shows the color scale of the markers: altitude (also used by trails) or signal level. onMode,
  * given only when some aircraft has a signal level (Beast input), adds the switch between the two. onCoverage
- * adds the coverage view switch (the Signal heatmap only when heatSignal), and onBand the heatmap's altitude band.
+ * adds the coverage view switch (the Signal heatmap only when heatSignal), onBand the heatmap's altitude band, and
+ * onWaypoints (given only when there are waypoints) the waypoints switch.
  */
 export function MapLegend({
   mode,
@@ -217,6 +225,8 @@ export function MapLegend({
   band = 'all',
   onBand,
   kinds = [],
+  waypoints = true,
+  onWaypoints,
 }: {
   mode: ColorMode
   onMode?: ((m: ColorMode) => void) | undefined
@@ -226,6 +236,8 @@ export function MapLegend({
   band?: HeatBand
   onBand?: (b: HeatBand) => void
   kinds?: readonly IconKind[]
+  waypoints?: boolean
+  onWaypoints?: ((on: boolean) => void) | undefined
 }) {
   const heat = coverage === 'signal' || coverage === 'count'
   const signal = mode === 'signal'
@@ -326,6 +338,18 @@ export function MapLegend({
             </>
           )}
         </div>
+      )}
+      {onWaypoints !== undefined && (
+        <label className="legend-check">
+          <input
+            type="checkbox"
+            checked={waypoints}
+            onChange={(e) => {
+              onWaypoints(e.target.checked)
+            }}
+          />
+          Waypoints
+        </label>
       )}
     </div>
   )

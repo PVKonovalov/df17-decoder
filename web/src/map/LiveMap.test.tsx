@@ -70,3 +70,18 @@ describe('MapLegend coverage view', () => {
     expect(screen.getByText('often')).toBeTruthy()
   })
 })
+
+describe('MapLegend waypoints', () => {
+  it('switches the waypoints, and has no switch without them', () => {
+    const onWaypoints = vi.fn()
+    const { rerender } = render(<MapLegend mode="altitude" waypoints onWaypoints={onWaypoints} />)
+    const box = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Waypoints' })
+    expect(box.checked).toBe(true)
+    fireEvent.click(box)
+    expect(onWaypoints).toHaveBeenCalledWith(false)
+    rerender(<MapLegend mode="altitude" waypoints={false} onWaypoints={onWaypoints} />)
+    expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Waypoints' }).checked).toBe(false)
+    rerender(<MapLegend mode="altitude" />)
+    expect(screen.queryByRole('checkbox', { name: 'Waypoints' })).toBeNull()
+  })
+})

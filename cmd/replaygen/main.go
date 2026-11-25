@@ -419,10 +419,10 @@ func applyConfig(o *options, path string, explicit map[string]bool) error {
 		return err
 	}
 	if !explicit["lat"] {
-		o.lat = cfg.Receiver.Lat
+		o.lat = cfg.Receiver.Lat.Degrees()
 	}
 	if !explicit["lon"] {
-		o.lon = cfg.Receiver.Lon
+		o.lon = cfg.Receiver.Lon.Degrees()
 	}
 	if !explicit["range"] {
 		o.maxRangeNm = min(o.maxRangeNm, cfg.Receiver.MaxRangeNm*0.9)

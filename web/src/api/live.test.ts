@@ -35,7 +35,14 @@ describe('toAction', () => {
       receiver: { lat: 1, lon: 2, maxRangeNm: 3 },
     })
     expect(toAction('{"type":"stats","data":{"frames":1}}')?.type).toBe('stats')
-    const map = { tileUrl: 'http://t.lan/{z}/{x}/{y}.png', attribution: 'lan', maxZoom: 17, darkFilter: false }
+    const map = {
+      tileUrl: 'http://t.lan/{z}/{x}/{y}.png',
+      attribution: 'lan',
+      maxZoom: 17,
+      darkFilter: false,
+      waypointLabelMinZoom: 9,
+      waypoints: [],
+    }
     expect(toAction(JSON.stringify({ type: 'map', data: map }))).toEqual({ type: 'map', map })
     const coverage = { receiver: { lat: 1, lon: 2 }, bucketDeg: 2, points: [] }
     expect(toAction(JSON.stringify({ type: 'coverage', data: coverage }))).toEqual({ type: 'coverage', coverage })

@@ -53,7 +53,7 @@ func TestWS_Updates(t *testing.T) {
 		t.Fatalf("first message = %s %s", m.Type, m.Data)
 	}
 	m = readWS(t, c)
-	if want := `{"tileUrl":"http://tiles.lan/{z}/{x}/{y}.png","attribution":"lan","maxZoom":17,"darkFilter":false}`; m.Type != "map" || string(m.Data) != want {
+	if want := `{"tileUrl":"http://tiles.lan/{z}/{x}/{y}.png","attribution":"lan","maxZoom":17,"darkFilter":false,"waypointLabelMinZoom":0,"waypoints":[]}`; m.Type != "map" || string(m.Data) != want {
 		t.Fatalf("second message = %s %s", m.Type, m.Data)
 	}
 	m = readWS(t, c)

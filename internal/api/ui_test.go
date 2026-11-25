@@ -43,9 +43,49 @@ func TestReceiver(t *testing.T) {
 func TestMapConfig(t *testing.T) {
 	h := New(Deps{Map: MapConfig{TileURL: "https://t.lan/{z}/{x}/{y}.png", Attribution: "© me", MaxZoom: 18, DarkFilter: true}})
 	rec := serve(h, http.MethodGet, "/api/map")
-	want := `{"tileUrl":"https://t.lan/{z}/{x}/{y}.png","attribution":"© me","maxZoom":18,"darkFilter":true}`
+	want := `{"tileUrl":"https://t.lan/{z}/{x}/{y}.png","attribution":"© me","maxZoom":18,"darkFilter":true,` +
+		`"waypointLabelMinZoom":0,"waypoints":[]}`
 	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != want {
 		t.Errorf("code %d body %s", rec.Code, rec.Body.String())
+	}
+
+	h = New(Deps{Map: MapConfig{WaypointLabelMinZoom: 9, Waypoints: []Waypoint{
+		{Name: "ALPHA", Lat: 25.07, Lon: 22.871666666666666, LatDMS: "250412.00N", LonDMS: "0225218.00E", Icon: "star"},
+		{Name: "BRAVO", Lat: 25.12, Lon: 22.95, LatDMS: "250712.00N", LonDMS: "0225700.00E", Icon: "diamond", Color: "#f80", Note: "fictional"},
+	}}})
+	rec = serve(h, http.MethodGet, "/api/map")
+	for _, w := range []string{
+		`"waypointLabelMinZoom":9`,
+		`{"name":"ALPHA","lat":25.07,"lon":22.871666666666666,"latDms":"250412.00N","lonDms":"0225218.00E","icon":"star"}`,
+		`{"name":"BRAVO","lat":25.12,"lon":22.95,"latDms":"250712.00N","lonDms":"0225700.00E","icon":"diamond","color":"#f80","note":"fictional"}`,
+	} {
+		if !strings.Contains(rec.Body.String(), w) {
+			t.Errorf("body %s does not contain %s", rec.Body, w)
+		}
+	}
+}
+
+// TestMapContract keeps MapConfig (with a fully populated waypoint) and web/src/api/map.fixture.json in sync.
+func TestMapContract(t *testing.T) {
+	var w Waypoint
+	populate(t, reflect.ValueOf(&w).Elem())
+	data, err := json.Marshal(MapConfig{Waypoints: []Waypoint{w}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("../../web/src/api/map.fixture.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := jsonKeys(t, data), jsonKeys(t, fixture); !slices.Equal(got, want) {
+		t.Errorf("MapConfig JSON keys drifted from web/src/api/map.fixture.json\n Go:      %v\n fixture: %v", got, want)
+	}
+	var g, f struct{ Waypoints []json.RawMessage }
+	if json.Unmarshal(data, &g) != nil || json.Unmarshal(fixture, &f) != nil || len(f.Waypoints) == 0 {
+		t.Fatal("waypoints missing")
+	}
+	if got, want := jsonKeys(t, g.Waypoints[0]), jsonKeys(t, f.Waypoints[0]); !slices.Equal(got, want) {
+		t.Errorf("Waypoint JSON keys drifted from the fixture\n Go:      %v\n fixture: %v", got, want)
 	}
 }
 

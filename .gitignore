@@ -65,3 +65,6 @@ go.work.sum
 /tape/
 *.tape.gz*
 /scripts
+
+# Real waypoints (map.waypointsFile); reveal the receiver area
+/config/waypoints*.yaml

@@ -16,7 +16,8 @@ source:
   replaySpeed: 1.0
 
 receiver:
-  # Receiver position, decimal degrees. Reference for local CPR decoding and distance/bearing.
+  # Receiver position: decimal degrees (25.07) or AIP DMS (250412.00N, 0225218.00E).
+  # Reference for local CPR decoding and distance/bearing.
   lat: 25.07
   lon: 22.87
   # Positions farther than this from the receiver are rejected as bogus.
@@ -95,6 +96,34 @@ map:
   maxZoom: 19
   # Invert the tiles in dark mode (OSM has no dark style). Set false if your tiles are already dark.
   darkFilter: true
+
+  # Named navigation fixes drawn on the map (below the traffic), in live and playback. Each entry:
+  #   name   1-12 characters, unique (case-insensitive); the label
+  #   lat    AIP DMS DDMMSS[.s]N|S (250412.00N, 250412N) or decimal degrees (25.07, -0.5)
+  #   lon    AIP DMS DDDMMSS[.s]E|W (0225218.00E) or decimal degrees (22.87); 3 degree digits in DMS
+  #   icon   triangle (default) | triangleOpen | star | diamond | circle | circleOpen | square | hexagon |
+  #          cross | flag; case-insensitive
+  #   color  optional #rgb or #rrggbb; default: a theme color readable on light and dark tiles
+  #   note   optional text for the tooltip
+  # Fictional example near the placeholder receiver:
+  #   waypoints:
+  #     - name: ALPHA
+  #       lat: 250412.00N
+  #       lon: 0225218.00E
+  #       icon: star
+  #     - name: BRAVO
+  #       lat: 25.12
+  #       lon: 22.95
+  #       icon: diamond
+  #       note: fictional fix
+  # Keep real waypoints only in a gitignored file (config/config.yaml, config/waypoints*.yaml): they reveal
+  # where the receiver is.
+  waypoints: []
+  # Optional YAML file with more waypoints in the same list format (no "waypoints:" key, just the list),
+  # merged with the list above; names must be unique across both. Relative to this file's directory.
+  waypointsFile: ""
+  # Waypoint names are shown from this zoom level up; below it only the symbols.
+  waypointLabelMinZoom: 9
 
 coverage:
   # JSON file that keeps the range outline (furthest position per 2° of bearing) across restarts. It is saved

@@ -60,3 +60,7 @@
 - 2026-11-22: The detail panel stays open while its reference data is edited, even when the aircraft leaves the table; it shows its last data marked 'No longer received'.
 - 2026-11-23: ADS-B position quality (TC 0, NIC, NACp): ok/degraded/lost per aircraft and flight (schema v7); Statistics charts per hour and weekday, GNSS-lost events; detail panel.
 - 2026-11-23: scripts/deploy.sh builds the linux binary (DEPLOY_ARCH), copies it to DEPLOY_HOST, installs it with a .prev backup, updates the unit if changed and restarts the service.
+- 2026-11-25: geo.Latitude/Longitude (AIP DMS or decimal) for receiver and new map.waypoints, waypointsFile, waypointLabelMinZoom; 10 icons; all errors with index and name.
+- 2026-11-25: Waypoints (decimal degrees, DMS text, icon, color, note) and waypointLabelMinZoom in /api/map and the map WebSocket message; map.fixture.json contract tests.
+- 2026-11-25: Map waypoints: WaypointLayer under all traffic (10 SVG chart symbols, labels from waypointLabelMinZoom, hover tooltip), legend switch; fictional demo waypoints.
+- 2026-11-25: Docs: README Waypoints section (coordinate formats, icons, waypointsFile, privacy) and CLAUDE.md architecture notes for geo coordinates, waypoint config, API and map layer.

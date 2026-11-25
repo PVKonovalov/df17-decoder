@@ -7,3 +7,16 @@ receiver:
   lon: 22.87
 api:
   listen: ":8080"
+map:
+  # Fictional waypoints around the placeholder receiver, one of each icon (never put real fixes here).
+  waypoints:
+    - {name: ALPHA, lat: 252400N, lon: 0225212E, icon: triangle, note: fictional compulsory reporting point}
+    - {name: BRAVO, lat: 25.05, lon: 23.25, icon: triangleOpen}
+    - {name: CHARL, lat: 244500.00N, lon: 0224000.00E, icon: star, note: fictional RNAV waypoint}
+    - {name: DELTA, lat: 25.30, lon: 22.55, icon: diamond}
+    - {name: ECHO, lat: 24.85, lon: 23.10, icon: circle}
+    - {name: DEMO FIELD, lat: 250828N, lon: 0225654E, icon: circleOpen, note: the taxiing aircraft's airfield}
+    - {name: DMX, lat: 25.18, lon: 22.70, icon: square}
+    - {name: VRX, lat: 245600N, lon: 0225000E, icon: hexagon}
+    - {name: MAST, lat: 25.00, lon: 22.98, icon: cross, color: "#cf222e", note: fictional obstacle}
+    - {name: VRP NORTH, lat: 25.22, lon: 22.90, icon: flag}

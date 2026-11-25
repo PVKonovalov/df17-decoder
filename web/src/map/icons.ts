@@ -127,3 +127,47 @@ export function categoryText(category: string | undefined): string | undefined {
   const name = CATEGORY_NAMES[category]
   return name === undefined ? category : `${category} (${name})`
 }
+
+/** WAYPOINT_ICONS are the waypoint symbols; config.WaypointIcons in Go has the same list (waypointIcons.fixture.json). */
+export const WAYPOINT_ICONS = [
+  'triangle',
+  'triangleOpen',
+  'star',
+  'diamond',
+  'circle',
+  'circleOpen',
+  'square',
+  'hexagon',
+  'cross',
+  'flag',
+] as const
+
+export type WaypointIcon = (typeof WAYPOINT_ICONS)[number]
+
+// Aeronautical chart symbols on a 12 × 12 grid: filled ones take the waypoint color as fill, open ones as stroke.
+const WAYPOINT_SHAPES: Record<WaypointIcon, { shape: string; filled: boolean }> = {
+  triangle: { shape: '<path d="M6 1.4l4.8 8.6H1.2z"/>', filled: true },
+  triangleOpen: { shape: '<path d="M6 1.8l4.4 7.8H1.6z"/>', filled: false },
+  star: { shape: '<path d="M6 .6l1.3 4.1 4.1 1.3-4.1 1.3L6 11.4 4.7 7.3.6 6l4.1-1.3z"/>', filled: true },
+  diamond: { shape: '<path d="M6 1l5 5-5 5-5-5z"/>', filled: true },
+  circle: { shape: '<circle cx="6" cy="6" r="4"/>', filled: true },
+  circleOpen: { shape: '<circle cx="6" cy="6" r="3.8"/>', filled: false },
+  square: { shape: '<rect x="2.2" y="2.2" width="7.6" height="7.6"/>', filled: false },
+  hexagon: { shape: '<path d="M3.7 2h4.6L10.6 6 8.3 10H3.7L1.4 6z"/>', filled: false },
+  cross: { shape: '<path d="M2.4 2.4l7.2 7.2M9.6 2.4l-7.2 7.2"/>', filled: false },
+  flag: { shape: '<path d="M2.4 11.6V.8h1.3v10.8zM3.7 1.2h6.6L8.7 3.8l1.6 2.6H3.7z"/>', filled: true },
+}
+
+/** waypointIcon returns the symbol of a configured icon name; unknown names get the default triangle. */
+export function waypointIcon(name: string): WaypointIcon {
+  return WAYPOINT_ICONS.find((i) => i === name) ?? 'triangle'
+}
+
+/**
+ * waypointSvg returns the 12 px symbol over a halo of the same shape (class wp-halo); the colors come from CSS
+ * (--wp-color, else --waypoint), so they follow the theme.
+ */
+export function waypointSvg(icon: WaypointIcon): string {
+  const { shape, filled } = WAYPOINT_SHAPES[icon]
+  return `<svg class="wp-svg" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><g class="wp-halo">${shape}</g><g class="${filled ? 'wp-fill' : 'wp-line'}">${shape}</g></svg>`
+}

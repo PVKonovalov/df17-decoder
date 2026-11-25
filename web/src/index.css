@@ -8,6 +8,7 @@
   --warn: #b26b00;
   --bad: #cf222e;
   --ring: #5b6472;
+  --waypoint: #7a3e9d;
   --receiver: #d1242f;
   --halo: rgba(255, 255, 255, 0.9);
   --hover: rgba(0, 0, 0, 0.04);
@@ -49,6 +50,7 @@
     --warn: #d29922;
     --bad: #f85149;
     --ring: #9aa4b2;
+    --waypoint: #d2a8ff;
     --receiver: #ff6b6b;
     --halo: rgba(0, 0, 0, 0.85);
     --hover: rgba(255, 255, 255, 0.05);
@@ -615,6 +617,68 @@ body {
   text-align: center;
   text-shadow: 0 0 3px var(--halo);
   pointer-events: none;
+}
+
+/* Waypoints (map.waypoints): --wp-color is a waypoint's own color, else the theme's --waypoint. */
+.wp-marker {
+  pointer-events: none;
+}
+
+.wp {
+  position: relative;
+  width: 12px;
+  height: 12px;
+}
+
+.wp-svg {
+  display: block;
+  overflow: visible;
+}
+
+.wp-halo {
+  fill: none;
+  stroke: var(--halo);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.wp-fill {
+  fill: var(--wp-color, var(--waypoint));
+}
+
+.wp-line {
+  fill: none;
+  stroke: var(--wp-color, var(--waypoint));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.wp-label {
+  position: absolute;
+  top: -1px;
+  left: 14px;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  color: var(--wp-color, var(--waypoint));
+  text-shadow:
+    0 0 2px var(--halo),
+    0 0 3px var(--halo);
+}
+
+.wp-labels-off .wp-label {
+  display: none;
+}
+
+.legend-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
 }
 
 .ac {

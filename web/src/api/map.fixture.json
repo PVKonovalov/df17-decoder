@@ -1,0 +1,19 @@
+{
+  "tileUrl": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  "attribution": "© OpenStreetMap contributors",
+  "maxZoom": 19,
+  "darkFilter": true,
+  "waypointLabelMinZoom": 9,
+  "waypoints": [
+    {
+      "name": "ALPHA",
+      "lat": 25.07,
+      "lon": 22.871666666666666,
+      "latDms": "250412.00N",
+      "lonDms": "0225218.00E",
+      "icon": "star",
+      "color": "#f80",
+      "note": "fictional fix"
+    }
+  ]
+}

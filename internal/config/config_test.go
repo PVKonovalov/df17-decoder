@@ -1,11 +1,17 @@
 package config
 
 import (
+	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/PVKonovalov/df17-decoder/internal/geo"
 )
 
 func writeConfig(t *testing.T, content string) string {
@@ -22,7 +28,7 @@ func TestLoad_EmptyFileGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Errorf("got %+v, want defaults %+v", cfg, Default())
 	}
 }
@@ -32,7 +38,7 @@ func TestLoad_ExampleFileMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Errorf("config.example.yaml differs from defaults:\n got %+v\nwant %+v", cfg, Default())
 	}
 }
@@ -57,10 +63,10 @@ log:
 	want := Default()
 	want.Source.URL = "file://testdata/capture.txt"
 	want.Source.ReplaySpeed = 0
-	want.Receiver.Lat = 51.5
+	want.Receiver.Lat = geo.Lat(51.5)
 	want.Tracker.TTL = Duration(2 * time.Minute)
 	want.Log.Level = "warn"
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("got  %+v\nwant %+v", cfg, want)
 	}
 }
@@ -98,6 +104,14 @@ func TestLoad_Errors(t *testing.T) {
 		{"tape flush interval", "tape:\n  segment: 10m\n  flushInterval: 10m\n", []string{"tape.flushInterval"}},
 		{"tape dir missing", "tape:\n  dir: /no/such/dir/tape\n", []string{"tape.dir", "/no/such/dir"}},
 		{"tape values", "tape:\n  retention: -1h\n  minFreeMB: -1\n", []string{"tape.retention", "tape.minFreeMB"}},
+		{"receiver lat DMS on the wrong axis", "receiver:\n  lat: 0225218E\n  lon: 250412N\n", []string{
+			`receiver.lat "0225218E": hemisphere E is not valid for a latitude`,
+			`receiver.lon "250412N": hemisphere N is not valid for a longitude`}},
+		{"receiver lat not a scalar", "receiver:\n  lat: [1]\n", []string{"lat: must be a number or a string"}},
+		{"receiver unknown key", "receiver:\n  alt: 10\n", []string{"field alt not found"}},
+		{"label zoom out of range", "map:\n  waypointLabelMinZoom: 0\n", []string{"map.waypointLabelMinZoom"}},
+		{"waypoint unknown key", "map:\n  waypoints:\n    - {name: A, lat: 1, lon: 2, colour: red}\n", []string{"field colour not found"}},
+		{"waypoints file missing", "map:\n  waypointsFile: nope.yaml\n", []string{"map.waypointsFile", "nope.yaml"}},
 		{"trails durations", "trails:\n  window: 0s\n  minInterval: 0s\n", []string{"trails.window", "trails.minInterval"}},
 	}
 	for _, tt := range tests {
@@ -153,7 +167,7 @@ func TestLoad_EmptyPathGivesDefaults(t *testing.T) {
 	}
 	want := Default()
 	want.Log.Level = "debug"
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("got %+v, want %+v", cfg, want)
 	}
 }
@@ -180,5 +194,176 @@ func TestEndpoint(t *testing.T) {
 		if err != nil || scheme != tt.scheme || addr != tt.addr {
 			t.Errorf("%s: got %q %q %v, want %q %q", tt.url, scheme, addr, err, tt.scheme, tt.addr)
 		}
+	}
+}
+
+func TestLoad_ReceiverFormats(t *testing.T) {
+	tests := []struct {
+		yaml     string
+		lat, lon float64
+	}{
+		{"receiver:\n  lat: 25.07\n  lon: 22.87\n", 25.07, 22.87},
+		{"receiver:\n  lat: \"-33.5\"\n  lon: -70\n", -33.5, -70},
+		{"receiver:\n  lat: 250412.00N\n  lon: 0225218.00E\n", 25.07, 22 + 52.0/60 + 18.0/3600},
+		{"receiver:\n  lat: 250412s\n  lon: \"0225218W\"\n", -25.07, -(22 + 52.0/60 + 18.0/3600)},
+	}
+	for _, tt := range tests {
+		cfg, err := Load(writeConfig(t, tt.yaml), Overrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := cfg.Receiver.Point(); math.Abs(p.Lat-tt.lat) > 1e-9 || math.Abs(p.Lon-tt.lon) > 1e-9 {
+			t.Errorf("%q: got %v, want %v,%v", tt.yaml, p, tt.lat, tt.lon)
+		}
+	}
+
+	cfg, err := Load(writeConfig(t, "receiver:\n  lat: 25.07\n  lon: 22.87\n  maxRangeNm: 300\n"), Overrides{})
+	if err != nil || !reflect.DeepEqual(cfg, Default()) {
+		t.Errorf("decimal receiver config differs from the defaults: %+v, %v", cfg.Receiver, err)
+	}
+}
+
+func TestLoad_Waypoints(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "waypoints.yaml"), []byte(`
+- name: DELTA
+  lat: 245030N
+  lon: 0230000E
+  icon: hexagon
+- name: ECHO
+  lat: 25.3
+  lon: 22.5
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+map:
+  waypointsFile: waypoints.yaml
+  waypointLabelMinZoom: 7
+  waypoints:
+    - name: ALPHA
+      lat: 250412.00N
+      lon: 0225218.00E
+      icon: Star
+      color: "#f80"
+      note: fictional
+    - name: Bravo
+      lat: 25.0883
+      lon: "22.95"
+      icon: TriangleOpen
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wps := cfg.Map.Waypoints
+	if len(wps) != 4 || cfg.Map.WaypointLabelMinZoom != 7 {
+		t.Fatalf("got %d waypoints, label zoom %d", len(wps), cfg.Map.WaypointLabelMinZoom)
+	}
+	a := wps[0]
+	if a.Name != "ALPHA" || a.Icon != "star" || a.Color != "#f80" || a.Note != "fictional" ||
+		math.Abs(a.Lat.Degrees()-25.07) > 1e-9 || a.Lat.DMS() != "250412.00N" || a.Lon.DMS() != "0225218.00E" {
+		t.Errorf("ALPHA = %+v", a)
+	}
+	if wps[1].Icon != "triangleOpen" || wps[1].Lon.Degrees() != 22.95 {
+		t.Errorf("Bravo = %+v", wps[1])
+	}
+	if wps[2].Name != "DELTA" || wps[2].Icon != "hexagon" || wps[3].Icon != "triangle" || wps[3].Lat.Degrees() != 25.3 {
+		t.Errorf("file waypoints = %+v", wps[2:])
+	}
+}
+
+func TestLoad_WaypointErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "waypoints.yaml"), []byte(`
+- name: alpha
+  lat: 25
+  lon: 22
+- name: FOXTROT
+  lat: 25
+  lon: 0225218N
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+map:
+  waypointsFile: waypoints.yaml
+  waypoints:
+    - name: ALPHA
+      lat: 250412.00N
+      lon: 0225218.00E
+    - name: ALPHA
+      lat: 25
+      lon: 22
+    - name: CHARLIE
+      lat: 25
+      lon: 22
+      icon: pentagon
+    - name: BRAVO
+      lat: 326015N
+      lon: 0225218.00E
+      color: red
+    - name: TOOLONGNAME13
+      lat: 25
+    - lat: 25
+      lon: 22
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path, Overrides{})
+	if err == nil {
+		t.Fatal("expected errors")
+	}
+	for _, want := range []string{
+		"map.waypoints[1] (ALPHA): duplicate name, also map.waypoints[0] (ALPHA)",
+		`map.waypoints[2] (CHARLIE): icon "pentagon" is not one of triangle, triangleOpen, star, diamond, circle, circleOpen, square, hexagon, cross, flag`,
+		`map.waypoints[3] (BRAVO): lat "326015N": minutes must be < 60`,
+		`map.waypoints[3] (BRAVO): color "red" must be #rgb or #rrggbb`,
+		"map.waypoints[4] (TOOLONGNAME13): name must be 1–12 characters, got 13",
+		"map.waypoints[4] (TOOLONGNAME13): lon is required",
+		"map.waypoints[5]: name must be 1–12 characters, got 0",
+		"waypoints.yaml[0] (alpha): duplicate name, also map.waypoints[0] (ALPHA)",
+		`waypoints.yaml[1] (FOXTROT): lon "0225218N": hemisphere N is not valid for a longitude`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "(BRAVO): lat is required") {
+		t.Errorf("a bad lat is also reported as missing:\n%v", err)
+	}
+}
+
+// TestWaypointIconsMatchUI keeps WaypointIcons and WAYPOINT_ICONS in web/src/map/icons.ts in sync through the
+// shared fixture, which the TS icon test compares too.
+func TestWaypointIconsMatchUI(t *testing.T) {
+	data, err := os.ReadFile("../../web/src/map/waypointIcons.fixture.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ui []string
+	if err := json.Unmarshal(data, &ui); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ui, WaypointIcons) {
+		t.Errorf("WaypointIcons %v differ from waypointIcons.fixture.json %v", WaypointIcons, ui)
+	}
+}
+
+func TestLoad_DemoConfig(t *testing.T) {
+	cfg, err := Load("../../config/demo.yaml", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	icons := map[string]bool{}
+	for _, w := range cfg.Map.Waypoints {
+		icons[w.Icon] = true
+	}
+	if len(icons) != len(WaypointIcons) {
+		t.Errorf("demo waypoints use %d of the %d icons", len(icons), len(WaypointIcons))
 	}
 }

@@ -130,13 +130,52 @@ export interface Receiver {
   maxRangeNm: number
 }
 
-/** api.MapConfig: the tile layer, from the map section of the service config */
+/** api.MapConfig: the tile layer and waypoints, from the map section of the service config */
 export interface MapConfig {
   tileUrl: string
   attribution: string
   maxZoom: number
   darkFilter: boolean
+  /** waypoint names are shown from this zoom up */
+  waypointLabelMinZoom: number
+  waypoints: Waypoint[]
 }
+
+/** api.Waypoint: a configured fix in decimal degrees, with the AIP DMS text it was written in */
+export interface Waypoint {
+  name: string
+  lat: number
+  lon: number
+  latDms: string
+  lonDms: string
+  /** one of config.WaypointIcons, e.g. "triangleOpen" */
+  icon: string
+  /** #rgb or #rrggbb; absent: the theme default */
+  color?: string
+  note?: string
+}
+
+/** Every MapConfig key, compared with map.fixture.json by the contract test. */
+export const mapConfigKeys = {
+  tileUrl: true,
+  attribution: true,
+  maxZoom: true,
+  darkFilter: true,
+  waypointLabelMinZoom: true,
+  waypoints: true,
+} as const satisfies Record<keyof MapConfig, true>
+
+/** Every Waypoint key, compared with map.fixture.json by the contract test. */
+export const waypointKeys = {
+  name: true,
+  lat: true,
+  lon: true,
+  latDms: true,
+  lonDms: true,
+  icon: true,
+  color: true,
+  note: true,
+} as const satisfies Record<keyof Waypoint, true>
 
 /** api.statsResponse */
 export interface Stats {

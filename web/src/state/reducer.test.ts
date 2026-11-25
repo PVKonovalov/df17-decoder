@@ -174,7 +174,17 @@ describe('connection, receiver, stats', () => {
   it('stores the latest values', () => {
     let s = reducer(initialState, { type: 'connection', conn: 'connected' })
     s = reducer(s, { type: 'receiver', receiver: { lat: 25, lon: 23, maxRangeNm: 300 } })
-    s = reducer(s, { type: 'map', map: { tileUrl: 'http://t/{z}/{x}/{y}', attribution: '', maxZoom: 18, darkFilter: true } })
+    s = reducer(s, {
+      type: 'map',
+      map: {
+        tileUrl: 'http://t/{z}/{x}/{y}',
+        attribution: '',
+        maxZoom: 18,
+        darkFilter: true,
+        waypointLabelMinZoom: 9,
+        waypoints: [],
+      },
+    })
     expect(s.map?.maxZoom).toBe(18)
     s = reducer(s, { type: 'coverage', coverage: { receiver: { lat: 25, lon: 23 }, bucketDeg: 2, points: [] } })
     expect(s.coverage?.bucketDeg).toBe(2)
