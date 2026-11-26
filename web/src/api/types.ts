@@ -265,18 +265,24 @@ export interface Playback {
   tapeEnd?: string // RFC 3339
 }
 
-/** history.Flight as served by /api/history/flights (the fields the UI uses) */
+/** history.Flight as served by /api/history/flights; checked by contract.test.ts (history.fixture.json) */
 export interface HistoryFlight {
   id: number
   icao: string
   callsign?: string
   squawk?: string
+  category?: string
   country?: string
   adsb: boolean
   firstSeen: string // RFC 3339, data time
   lastSeen: string
   closed: boolean
+  points: number
   maxAlt?: number
+  minDistanceNm?: number
+  maxDistanceNm?: number
+  durationS: number
+  onTape: boolean // the tape covers some of the flight
 }
 
 /** history.Event: an emergency squawk on the timeline */

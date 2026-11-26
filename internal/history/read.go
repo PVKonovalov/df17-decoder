@@ -31,6 +31,9 @@ type Flight struct {
 	Points        int       `json:"points"`
 	MaxAlt        *int      `json:"maxAlt,omitempty"`
 	MinDistanceNm *float64  `json:"minDistanceNm,omitempty"`
+	MaxDistanceNm *float64  `json:"maxDistanceNm,omitempty"`
+	DurationS     int64     `json:"durationS"`
+	OnTape        bool      `json:"onTape"` // set by the API from the tape extent
 }
 
 // SamplePoint is a stored altitude/squawk sample; T is unix ms in data time.
@@ -55,16 +58,19 @@ type State struct {
 }
 
 // FlightQuery selects flights overlapping [From, To]; ICAO "" matches every address. Text, when set, matches the
-// ICAO address exactly or the start of the callsign (case-insensitive).
+// ICAO address exactly or the start of the callsign (case-insensitive). Before (unix ms, 0 = none) pages: flights
+// starting before it, or at it with an id below BeforeID when that is set.
 type FlightQuery struct {
 	From, To time.Time
 	ICAO     string
 	Text     string
+	Before   int64
+	BeforeID int64
 	Limit    int
 }
 
 const flightColumns = `f.id, f.icao, f.callsign, f.squawk, f.category, f.adsb, f.first_seen, f.last_seen, f.closed,
-	f.points, f.max_alt, f.min_distance_nm`
+	f.points, f.max_alt, f.min_distance_nm, f.max_distance_nm`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -74,10 +80,10 @@ func scanFlight(row scanner, extra ...any) (Flight, error) {
 		callsign, squawk, category sql.NullString
 		firstSeen, lastSeen        int64
 		maxAlt                     sql.NullInt64
-		minDist                    sql.NullFloat64
+		minDist, maxDist           sql.NullFloat64
 	)
 	dest := append([]any{&f.ID, &f.ICAO, &callsign, &squawk, &category, &f.ADSB, &firstSeen, &lastSeen, &f.Closed,
-		&f.Points, &maxAlt, &minDist}, extra...)
+		&f.Points, &maxAlt, &minDist, &maxDist}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return f, err
 	}
@@ -89,6 +95,10 @@ func scanFlight(row scanner, extra ...any) (Flight, error) {
 	if minDist.Valid {
 		f.MinDistanceNm = new(minDist.Float64)
 	}
+	if maxDist.Valid {
+		f.MaxDistanceNm = new(maxDist.Float64)
+	}
+	f.DurationS = (lastSeen - firstSeen) / 1000
 	if icao, err := strconv.ParseUint(f.ICAO, 16, 32); err == nil {
 		f.Country = tracker.Country(uint32(icao))
 	}
@@ -166,23 +176,16 @@ func (s *Store) Flights(ctx context.Context, q FlightQuery) ([]Flight, error) {
 		query += ` AND (f.icao = ? OR f.callsign LIKE ? ESCAPE '\')`
 		args = append(args, t, strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(t)+"%")
 	}
+	switch {
+	case q.Before != 0 && q.BeforeID != 0:
+		query += ` AND (f.first_seen < ? OR f.first_seen = ? AND f.id < ?)`
+		args = append(args, q.Before, q.Before, q.BeforeID)
+	case q.Before != 0:
+		query += ` AND f.first_seen < ?`
+		args = append(args, q.Before)
+	}
 	query += ` ORDER BY f.first_seen DESC, f.id DESC LIMIT ?`
-	args = append(args, q.Limit)
-
-	rows, err := s.ro.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("history: %w", err)
-	}
-	defer rows.Close()
-	out := []Flight{}
-	for rows.Next() {
-		f, err := scanFlight(rows)
-		if err != nil {
-			return nil, fmt.Errorf("history: %w", err)
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return s.flightRows(ctx, query, append(args, q.Limit)...)
 }
 
 // FlightByID returns one flight with its positions and samples, or ErrNotFound.

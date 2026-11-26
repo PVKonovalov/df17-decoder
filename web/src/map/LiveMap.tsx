@@ -9,6 +9,7 @@ import { type CoverageView, useColorMode, useCoverageView, useHeatBand, usePanel
 import { CoverageLayer } from './CoverageLayer'
 import { HEAT_BANDS, type HeatBand, hasSignal as gridHasSignal } from './heatmap'
 import { HeatmapLayer } from './HeatmapLayer'
+import { HistoryTrackLayer } from './HistoryTrackLayer'
 import { WaypointLayer } from './WaypointLayer'
 import {
   ALT_MAX_FT,
@@ -88,6 +89,7 @@ export function LiveMap(props: Props) {
           <HeatmapLayer grid={state.coverageGrid} metric={coverageView} band={band} />
         )}
         {coverageView === 'outline' && <CoverageLayer coverage={state.coverage} />}
+        {state.historyTracks.length > 0 && <HistoryTrackLayer ids={state.historyTracks} fitSeq={state.fitSeq} />}
         <AircraftLayer
           aircraft={state.aircraft}
           trails={state.trails}
@@ -99,6 +101,9 @@ export function LiveMap(props: Props) {
         <PanToSelection state={state} />
         <InvalidateOnResize />
       </MapContainer>
+      {state.historyTracks.length > 0 && state.selected === null && state.historyIcao === null && (
+        <ClearTracksChip count={state.historyTracks.length} icao={state.historyFor} dispatch={dispatch} />
+      )}
       {showLegend && (
         <MapLegend
           mode={colorMode}
@@ -149,6 +154,34 @@ function RangeRings({ lat, lon }: { lat: number; lon: number }) {
   )
 }
 
+/**
+ * ClearTracksChip clears the stored tracks left on the map after their panel was closed. It sits outside the
+ * Leaflet container, so its click never reaches the map.
+ */
+export function ClearTracksChip({
+  count,
+  icao,
+  dispatch,
+}: {
+  count: number
+  icao: string | null
+  dispatch: Dispatch<Action>
+}) {
+  return (
+    <button
+      type="button"
+      className="tracks-chip"
+      title={`Remove the stored track${count === 1 ? '' : 's'}${icao === null ? '' : ` of ${icao}`} from the map`}
+      onClick={() => {
+        dispatch({ type: 'clearTracks' })
+      }}
+    >
+      Clear tracks ({count})
+    </button>
+  )
+}
+
+/** ClearSelectionOnMapClick closes the detail panel on a click on the map; stored tracks stay. */
 function ClearSelectionOnMapClick({ dispatch }: { dispatch: Dispatch<Action> }) {
   useMapEvents({
     click: () => {

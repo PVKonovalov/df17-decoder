@@ -98,6 +98,15 @@ var migrations = []string{
 	ALTER TABLE hourly ADD COLUMN adsb_degraded INTEGER;
 	ALTER TABLE hourly ADD COLUMN adsb_lost INTEGER;
 	ALTER TABLE hourly ADD COLUMN adsb_no_position INTEGER;`,
+
+	// aircraft history (aircraft.go): totals per address that outlive flight retention, filled by a background
+	// backfill (meta backfill_aircraft) and on every flight close
+	`ALTER TABLE aircraft_seen ADD COLUMN flights INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE aircraft_seen ADD COLUMN adsb INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE aircraft_seen ADD COLUMN last_callsign TEXT;
+	ALTER TABLE flights ADD COLUMN max_distance_nm REAL;
+	CREATE INDEX flights_callsign ON flights(callsign, first_seen);
+	INSERT INTO meta(key, value) VALUES('backfill_aircraft', '-1');`,
 }
 
 // SchemaVersion is the schema version this build writes.

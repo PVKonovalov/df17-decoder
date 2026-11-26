@@ -56,8 +56,8 @@ func point(at time.Time, alt int) tracker.TrackPoint {
 func TestOpen_CreatesSchema(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, file, Options{})
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 7 {
-		t.Errorf("schema version %d, want 7", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 8 {
+		t.Errorf("schema version %d, want 8", v)
 	}
 	if v := queryInt(t, s, `PRAGMA auto_vacuum`); v != 2 {
 		t.Errorf("auto_vacuum = %d, want 2 (incremental)", v)
@@ -66,7 +66,7 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "wal" {
 		t.Errorf("journal_mode = %q (%v)", mode, err)
 	}
-	for _, idx := range []string{"flights_time", "flights_icao", "positions_t"} {
+	for _, idx := range []string{"flights_time", "flights_icao", "flights_callsign", "positions_t"} {
 		if queryInt(t, s, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, idx) != 1 {
 			t.Errorf("index %s missing", idx)
 		}

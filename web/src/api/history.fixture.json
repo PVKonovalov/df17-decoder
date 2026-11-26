@@ -1,0 +1,95 @@
+{
+  "match": {
+    "icao": "AB12CD",
+    "lastCallsign": "FAKE777",
+    "callsigns": [
+      "FAKE777",
+      "FAKE101"
+    ],
+    "country": "Fictionland",
+    "lastSeen": "2026-11-20T15:10:00Z",
+    "flights": 2,
+    "adsb": true,
+    "live": false
+  },
+  "aircraft": {
+    "icao": "AB12CD",
+    "country": "Fictionland",
+    "firstSeen": "2026-10-01T08:00:00Z",
+    "lastSeen": "2026-11-20T15:10:00Z",
+    "flights": 41,
+    "adsb": true,
+    "live": false,
+    "retainedFlights": 12,
+    "callsigns": [
+      {
+        "callsign": "FAKE777",
+        "flights": 8
+      }
+    ],
+    "maxAlt": 39000,
+    "minDistanceNm": 4.2,
+    "maxDistanceNm": 182.5,
+    "daysSeen": 9,
+    "quality": {
+      "ok": 10,
+      "degraded": 1,
+      "lost": 1
+    },
+    "retainedFrom": "2026-10-21T12:00:00Z"
+  },
+  "flight": {
+    "id": 3,
+    "icao": "AB12CD",
+    "callsign": "FAKE777",
+    "squawk": "1000",
+    "category": "A3",
+    "country": "Fictionland",
+    "adsb": true,
+    "firstSeen": "2026-11-20T15:00:00Z",
+    "lastSeen": "2026-11-20T15:10:00Z",
+    "closed": true,
+    "points": 2,
+    "maxAlt": 30000,
+    "minDistanceNm": 12.5,
+    "maxDistanceNm": 95.1,
+    "durationS": 600,
+    "onTape": true
+  },
+  "tracks": {
+    "tracks": []
+  },
+  "track": {
+    "id": 3,
+    "icao": "AB12CD",
+    "t": [
+      1795705200000,
+      1795705260000
+    ],
+    "lat": [
+      25.1,
+      25.1
+    ],
+    "lon": [
+      22.9,
+      23.0
+    ],
+    "alt": [
+      30000,
+      null
+    ],
+    "gs": [
+      420,
+      null
+    ],
+    "track": [
+      90,
+      null
+    ]
+  },
+  "sample": {
+    "t": 1795705200000,
+    "alt": 3000,
+    "squawk": "7000"
+  }
+}

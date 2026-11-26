@@ -3,6 +3,18 @@ import fixture from './aircraft.fixture.json'
 import mapFixture from './map.fixture.json'
 import pointFixture from './trackpoint.fixture.json'
 import statsFixture from './stats.fixture.json'
+import historyFixture from './history.fixture.json'
+import {
+  aircraftHistoryKeys,
+  aircraftMatchKeys,
+  historyFlightKeys,
+  historyTrackKeys,
+  samplePointKeys,
+  type AircraftHistory,
+  type AircraftMatch,
+  type HistoryTrack,
+  type TracksResponse,
+} from './history'
 import {
   altitudeKeys,
   countryKeys,
@@ -26,6 +38,7 @@ import {
   trackPointKeys,
   waypointKeys,
   type Aircraft,
+  type HistoryFlight,
   type MapConfig,
   type TrackPoint,
 } from './types'
@@ -108,5 +121,38 @@ describe('Stats contract', () => {
       'KLM',
       '2026-11-20',
     ])
+  })
+})
+
+// Checked against the history types by internal/api TestAircraftHistoryContract.
+describe('Aircraft history contract', () => {
+  const nested = (o: object): string[] =>
+    Object.entries(o).flatMap(([k, v]) =>
+      v !== null && typeof v === 'object' && !Array.isArray(v)
+        ? [k, ...nested(v as object).map((n) => `${k}.${n}`)]
+        : [k],
+    )
+
+  it('has exactly the fixture keys', () => {
+    const pairs: [object, object][] = [
+      [aircraftMatchKeys, historyFixture.match],
+      [aircraftHistoryKeys, historyFixture.aircraft],
+      [historyFlightKeys, historyFixture.flight],
+      [historyTrackKeys, historyFixture.track],
+      [samplePointKeys, historyFixture.sample],
+    ]
+    for (const [keys, fx] of pairs) {
+      expect(nested(keys).sort()).toEqual(nested(fx).sort())
+    }
+    expect(Object.keys(historyFixture.tracks)).toEqual(['tracks'])
+  })
+
+  it('accepts the fixture as the history types', () => {
+    const m: AircraftMatch = historyFixture.match
+    const a: AircraftHistory = historyFixture.aircraft
+    const f: HistoryFlight = historyFixture.flight
+    const tr: HistoryTrack = historyFixture.track
+    const r: TracksResponse = { tracks: [tr] }
+    expect([m.flights, a.quality?.lost, f.durationS, r.tracks[0]?.alt[1]]).toEqual([2, 1, 600, null])
   })
 })

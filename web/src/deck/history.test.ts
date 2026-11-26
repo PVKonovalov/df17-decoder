@@ -26,6 +26,10 @@ describe('densityPaths', () => {
 })
 
 describe('flightSeek', () => {
+  it('rounds a tape start with milliseconds up, since seeks are in whole seconds', () => {
+    expect(flightSeek('2026-11-20T10:00:10Z', '2026-11-20T10:30:00Z', '2026-11-20T10:00:00.884Z')).toBe('2026-11-20T10:00:01.000Z')
+  })
+
   it('seeks 30 s before the flight, within the tape', () => {
     expect(flightSeek('2026-11-20T10:00:00Z', '2026-11-20T10:30:00Z', '2026-11-19T00:00:00Z')).toBe('2026-11-20T09:59:30.000Z')
     expect(flightSeek('2026-11-20T10:00:10Z', '2026-11-20T10:30:00Z', '2026-11-20T10:00:00Z')).toBe('2026-11-20T10:00:00.000Z')

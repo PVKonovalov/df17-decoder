@@ -28,6 +28,9 @@ interface Props {
   colorMode?: ColorMode
 }
 
+/** TRAIL_PANE holds the live trails above the overlays (400: coverage, heatmap) and the stored tracks (410). */
+export const TRAIL_PANE = 'trails'
+
 /**
  * AircraftLayer draws one marker per aircraft, shaped by its emitter category (icons.ts), rotated by its track and
  * colored by altitude or signal (colorMode), with a label and an
@@ -51,7 +54,12 @@ export function AircraftLayer({ aircraft, trails, selected, dispatch, colorMode 
   }, [map])
 
   useEffect(() => {
-    renderer.current ??= L.canvas({ padding: 0.5 })
+    if (renderer.current === null) {
+      const pane = map.getPane(TRAIL_PANE) ?? map.createPane(TRAIL_PANE)
+      pane.style.zIndex = '420'
+      pane.style.pointerEvents = 'none'
+      renderer.current = L.canvas({ padding: 0.5, pane: TRAIL_PANE })
+    }
     const now = dataNow(aircraft.values())
     const all = entries.current
 

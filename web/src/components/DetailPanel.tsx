@@ -64,9 +64,9 @@ export interface Reference {
   route?: RouteInfo | null | undefined
 }
 
-const typeText = (i: AircraftInfo | null | undefined) =>
+export const typeText = (i: AircraftInfo | null | undefined) =>
   [i?.typeCode, i?.typeName].filter((v) => v !== undefined).join(' · ') || undefined
-const routeText = (r: RouteInfo | null | undefined) =>
+export const routeText = (r: RouteInfo | null | undefined) =>
   r ? `${r.origin ?? '?'} → ${r.destination ?? '?'}` : undefined
 
 /**
@@ -156,7 +156,7 @@ const COPY_FEEDBACK_MS = 1500
  * CopyLinkButton copies the page URL, which carries the selection and table filters, plus the playback moment when
  * one is given, and briefly confirms.
  */
-function CopyLinkButton({ moment }: { moment: Moment | undefined }) {
+export function CopyLinkButton({ moment }: { moment: Moment | undefined }) {
   const [result, setResult] = useState<'copied' | 'failed' | null>(null)
   useEffect(() => {
     if (result === null) {
@@ -191,7 +191,7 @@ function CopyLinkButton({ moment }: { moment: Moment | undefined }) {
  * useReference loads the user's entries for icao and callsign when enabled, again only when either changes, and
  * returns them with setters for saved values.
  */
-function useReference(icao: string, callsign: string | undefined, enabled: boolean) {
+export function useReference(icao: string, callsign: string | undefined, enabled: boolean) {
   const [info, setInfo] = useState<{ key: string; v: AircraftInfo | null } | null>(null)
   const [route, setRoute] = useState<{ key: string; v: RouteInfo | null } | null>(null)
   useEffect(() => {
@@ -350,6 +350,7 @@ export function DetailPanel({
   reference = false,
   editing = false,
   gone = false,
+  children,
 }: {
   aircraft: Aircraft
   dispatch: Dispatch<Action>
@@ -357,6 +358,7 @@ export function DetailPanel({
   reference?: boolean
   editing?: boolean
   gone?: boolean
+  children?: ReactNode // the History section
 }) {
   const [current, saved] = useReference(aircraft.icao, aircraft.callsign, reference)
   const editKey = `${aircraft.icao}/${aircraft.callsign ?? ''}`
@@ -417,6 +419,7 @@ export function DetailPanel({
           </div>
         ))}
       </dl>
+      {children}
       <a className="detail-link" href={trackerUrl(aircraft.icao)} target="_blank" rel="noreferrer noopener">
         View on ADS-B Exchange ↗
       </a>

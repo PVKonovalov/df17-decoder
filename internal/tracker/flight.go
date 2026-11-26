@@ -29,6 +29,7 @@ type FlightInfo struct {
 	Points        int
 	MaxAlt        *int
 	MinDistanceNm *float64
+	MaxDistanceNm *float64
 }
 
 // Sample is one altitude/squawk record of a Mode-S-only aircraft; T is unix ms in data time.
@@ -188,6 +189,9 @@ func (t *Tracker) addTrackPoint(e *entry, pos Position) {
 	}
 	if d := e.a.DistanceNm; d != nil && (f.info.MinDistanceNm == nil || *d < *f.info.MinDistanceNm) {
 		f.info.MinDistanceNm = d
+	}
+	if d := e.a.DistanceNm; d != nil && (f.info.MaxDistanceNm == nil || *d > *f.info.MaxDistanceNm) {
+		f.info.MaxDistanceNm = d
 	}
 	if t.opt.Flights != nil {
 		t.opt.Flights.Point(f.info.ID, p)

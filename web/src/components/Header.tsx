@@ -1,5 +1,7 @@
+import type { Dispatch } from 'react'
 import { linkClick, STATS_PATH } from '../route'
-import type { ConnState, State } from '../state/reducer'
+import type { Action, ConnState, State } from '../state/reducer'
+import { SearchBox } from './SearchBox'
 
 const connLabel: Record<ConnState, string> = {
   connecting: 'connecting',
@@ -18,9 +20,18 @@ export interface PanelToggles {
 
 /**
  * Header shows the title with the server version, aircraft counts, message rate, receiver source status and the /api/ws connection state, and the
- * switches that show or hide the aircraft table and the map legend.
+ * switches that show or hide the aircraft table and the map legend. With dispatch, it has the aircraft search box
+ * (history search when the server keeps history).
  */
-export function Header({ state, panels }: { state: State; panels?: PanelToggles }) {
+export function Header({
+  state,
+  panels,
+  dispatch,
+}: {
+  state: State
+  panels?: PanelToggles
+  dispatch?: Dispatch<Action>
+}) {
   const { aircraft, stats, conn } = state
   let withPos = 0
   for (const a of aircraft.values()) {
@@ -70,6 +81,9 @@ export function Header({ state, panels }: { state: State; panels?: PanelToggles 
           </dd>
         </div>
       </dl>
+      {dispatch && (
+        <SearchBox aircraft={aircraft} history={stats?.historyFlightsOpen !== undefined} dispatch={dispatch} />
+      )}
       <a className="header-link" href={STATS_PATH} onClick={linkClick(STATS_PATH)}>
         Statistics
       </a>

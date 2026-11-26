@@ -143,6 +143,11 @@ func (s *Store) init() error {
 	if from != to {
 		s.opt.Logger.Info("history schema migrated", "file", s.opt.File, "from", from, "to", to)
 	}
+	if from == 0 {
+		if _, err := s.db.Exec(`DELETE FROM meta WHERE key = ?`, backfillKey); err != nil {
+			return fmt.Errorf("history: %w", err)
+		}
+	}
 	if _, err := s.db.Exec(`UPDATE flights SET last_seen = max(last_seen,
 		coalesce((SELECT max(t) FROM positions WHERE flight_id = flights.id), 0),
 		coalesce((SELECT max(t) FROM samples WHERE flight_id = flights.id), 0))
@@ -153,12 +158,8 @@ func (s *Store) init() error {
 	if s.opt.ResumeWithin <= 0 {
 		cutoff = math.MaxInt64
 	}
-	res, err := s.db.Exec(`UPDATE flights SET closed = 1 WHERE closed = 0 AND last_seen < ?`, cutoff)
-	if err != nil {
+	if err := s.closeStale(cutoff); err != nil {
 		return fmt.Errorf("history: recovery: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		s.opt.Logger.Info("history: closed flights left open by the previous run", "flights", n)
 	}
 	if s.resume, err = s.openFlights(); err != nil {
 		return fmt.Errorf("history: resume: %w", err)
@@ -179,7 +180,7 @@ func (s *Store) init() error {
 // openFlights loads the flights still open, with their positions of the last ResumeTrail before their last_seen.
 func (s *Store) openFlights() ([]tracker.ResumedFlight, error) {
 	rows, err := s.db.Query(`SELECT id, icao, coalesce(callsign, ''), coalesce(squawk, ''), coalesce(category, ''),
-		adsb, first_seen, last_seen, points, max_alt, min_distance_nm FROM flights WHERE closed = 0 ORDER BY id`)
+		adsb, first_seen, last_seen, points, max_alt, min_distance_nm, max_distance_nm FROM flights WHERE closed = 0 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +189,7 @@ func (s *Store) openFlights() ([]tracker.ResumedFlight, error) {
 		var f tracker.FlightInfo
 		var first, last int64
 		if err := rows.Scan(&f.ID, &f.ICAO, &f.Callsign, &f.Squawk, &f.Category, &f.ADSB, &first, &last, &f.Points,
-			&f.MaxAlt, &f.MinDistanceNm); err != nil {
+			&f.MaxAlt, &f.MinDistanceNm, &f.MaxDistanceNm); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -308,10 +309,14 @@ func (s *Store) Run(ctx context.Context) {
 	prune := time.NewTicker(retentionInterval)
 	defer prune.Stop()
 	s.prune()
+	s.backfillCounts()
+	step := s.backfillStep()
 
 	var batch []event
 	for {
 		select {
+		case <-step:
+			step = s.backfillStep()
 		case ev := <-s.queue:
 			batch = append(batch, ev)
 		case <-flush.C:
@@ -366,9 +371,19 @@ func (s *Store) flush(batch []event) []event {
 }
 
 type flightAgg struct {
-	points int
-	last   int64
-	maxAlt *int
+	points     int
+	last       int64
+	maxAlt     *int
+	minD, maxD *float64
+}
+
+func (a *flightAgg) addDistance(d float64) {
+	if a.minD == nil || d < *a.minD {
+		a.minD = &d
+	}
+	if a.maxD == nil || d > *a.maxD {
+		a.maxD = &d
+	}
 }
 
 func (a *flightAgg) add(t int64, alt *int) {
@@ -393,14 +408,16 @@ func (s *Store) write(batch []event) (n int, err error) {
 		}
 	}()
 	upsert, err := tx.Prepare(`INSERT INTO flights(id, icao, callsign, squawk, category, adsb,
-			first_seen, last_seen, closed, max_alt, min_distance_nm)
-		VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+			first_seen, last_seen, closed, max_alt, min_distance_nm, max_distance_nm)
+		VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
 		ON CONFLICT(id) DO UPDATE SET callsign = excluded.callsign, squawk = excluded.squawk,
 			category = excluded.category, adsb = excluded.adsb, last_seen = max(last_seen, excluded.last_seen),
 			closed = excluded.closed,
 			max_alt = CASE WHEN ?10 IS NULL THEN max_alt ELSE max(coalesce(max_alt, ?10), ?10) END,
 			min_distance_nm = CASE WHEN ?11 IS NULL THEN min_distance_nm
-				ELSE min(coalesce(min_distance_nm, ?11), ?11) END`)
+				ELSE min(coalesce(min_distance_nm, ?11), ?11) END,
+			max_distance_nm = CASE WHEN ?12 IS NULL THEN max_distance_nm
+				ELSE max(coalesce(max_distance_nm, ?12), ?12) END`)
 	if err != nil {
 		return 0, err
 	}
@@ -418,6 +435,11 @@ func (s *Store) write(batch []event) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
+	wasClosed, err := tx.Prepare(`SELECT closed FROM flights WHERE id = ?`)
+	if err != nil {
+		return 0, err
+	}
+	var closing []int64
 
 	aggs := map[int64]*flightAgg{}
 	agg := func(id int64) *flightAgg {
@@ -432,7 +454,15 @@ func (s *Store) write(batch []event) (n int, err error) {
 		switch ev.kind {
 		case eventFlight:
 			f := ev.flight
-			_, err = upsert.Exec(f.ID, f.ICAO, nullString(f.Callsign), nullString(f.Squawk), nullString(f.Category), f.ADSB, f.FirstSeen.UnixMilli(), f.LastSeen.UnixMilli(), f.Closed, f.MaxAlt, f.MinDistanceNm)
+			if f.Closed {
+				var c bool
+				if e := wasClosed.QueryRow(f.ID).Scan(&c); errors.Is(e, sql.ErrNoRows) || e == nil && !c {
+					closing = append(closing, f.ID)
+				} else if e != nil {
+					return 0, e
+				}
+			}
+			_, err = upsert.Exec(f.ID, f.ICAO, nullString(f.Callsign), nullString(f.Squawk), nullString(f.Category), f.ADSB, f.FirstSeen.UnixMilli(), f.LastSeen.UnixMilli(), f.Closed, f.MaxAlt, f.MinDistanceNm, f.MaxDistanceNm)
 		case eventPoint:
 			p := ev.point
 			var alt *int
@@ -449,6 +479,9 @@ func (s *Store) write(batch []event) (n int, err error) {
 					a := agg(ev.id)
 					a.points++
 					a.add(p.T, alt)
+					if s.opt.Receiver != nil {
+						a.addDistance(geo.DistanceNm(*s.opt.Receiver, geo.Point{Lat: p.Lat, Lon: p.Lon}))
+					}
 				}
 			}
 		case eventSample:
@@ -469,8 +502,15 @@ func (s *Store) write(batch []event) (n int, err error) {
 	}
 	for id, a := range aggs {
 		if _, err = tx.Exec(`UPDATE flights SET points = points + ?1, last_seen = max(last_seen, ?2),
-				max_alt = CASE WHEN ?3 IS NULL THEN max_alt ELSE max(coalesce(max_alt, ?3), ?3) END
-			WHERE id = ?4`, a.points, a.last, a.maxAlt, id); err != nil {
+				max_alt = CASE WHEN ?3 IS NULL THEN max_alt ELSE max(coalesce(max_alt, ?3), ?3) END,
+				min_distance_nm = CASE WHEN ?5 IS NULL THEN min_distance_nm ELSE min(coalesce(min_distance_nm, ?5), ?5) END,
+				max_distance_nm = CASE WHEN ?6 IS NULL THEN max_distance_nm ELSE max(coalesce(max_distance_nm, ?6), ?6) END
+			WHERE id = ?4`, a.points, a.last, a.maxAlt, id, a.minD, a.maxD); err != nil {
+			return 0, err
+		}
+	}
+	for _, id := range closing {
+		if err = countClosed(tx, `id = ?`, id); err != nil {
 			return 0, err
 		}
 	}

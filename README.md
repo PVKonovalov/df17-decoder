@@ -150,7 +150,10 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/receiver` | Receiver position and `maxRangeNm` from the config |
 | `GET /api/coverage` | Range outline: the furthest accepted position per 2° of bearing (distance, point, altitude, time) |
 | `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
-| `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?q=` (ICAO or callsign prefix), `?limit=` (100, max 1000) |
+| `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?q=` (ICAO or callsign prefix), `?limit=` (100, max 1000), and paging with `?before=` (the last row's `firstSeen` in unix ms) and `?beforeId=` (its `id`). Each row has `durationS`, `maxAlt`, `minDistanceNm`, `maxDistanceNm`, `points` and `onTape` (the tape still covers it) |
+| `GET /api/history/search?q=&limit=20` | Aircraft (one row per ICAO address, not flights) whose address starts with `q` (1–6 hex digits) or whose callsign starts with `q` or, from 3 characters, contains it: `{icao, lastCallsign, callsigns, country, lastSeen, flights, adsb, live}`, live ones first, then by last seen (`limit` max 50) |
+| `GET /api/history/aircraft/{icao}?tz=` | One aircraft's history: first and last seen, flights and ADS-B over all time, and from the stored flights its callsigns with counts, max altitude, closest and furthest distance, days seen (in the IANA timezone `tz`), position quality, and `retainedFrom` (the oldest stored flight); 404 when never seen |
+| `GET /api/history/tracks?ids=1,2,3` | The positions of up to 20 flights as parallel arrays `t`, `lat`, `lon`, `alt`, `gs`, `track` (null when unknown), for the map's stored tracks |
 | `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
 | `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
 | `GET /api/history/timeline?from=&to=&bucket=1m` | Flights active per bucket as `[ADS-B, Mode-S only]` (at most 2000 buckets) and emergency squawk events: the timeline's density strip |
@@ -261,6 +264,12 @@ flights, and all of them with a file or tape source, are closed at start; a cras
 **Edit** in the detail panel. They are kept in the same database, in `aircraft_info` (by ICAO address:
 registration, type code and name, operator) and `routes` (by callsign: from and to), which share their keys
 with `flights.icao` and `flights.callsign`. Retention never deletes them, and no outside service is used.
+
+**Aircraft history.** `aircraft_seen` keeps one small row per ICAO address: first and last seen, the number of
+flights, whether it ever sent ADS-B and its last callsign. Neither `history.retention` nor `stats.retention`
+deletes it, so "first seen" and the flight count stay true after old flights are gone; the per-flight details
+(callsigns, altitudes, distances, days) cover the flights still stored. Databases from before this table are
+filled in the background at the first start.
 
 **Disk use.** A stored point takes about 84 bytes including indexes. An aircraft in cruise stores about one point
 per 5 s (about 1.5 MB per day), more while turning or climbing, so count roughly 2 MB per day for every aircraft
@@ -445,6 +454,33 @@ there's nothing else to deploy.
   [Playback](#playback).
 - Light and dark themes follow the OS setting. On narrow screens the map sits above the table; on wide
   screens a splitter between them can be dragged.
+
+### Aircraft history
+
+With history enabled, every aircraft ever seen can be looked up, including ones that aren't received now.
+
+- **Search.** The box in the header (press `/` to jump to it) finds aircraft by ICAO address (a hex prefix) or
+  callsign (a prefix, or any part from 3 characters). Results show the last callsign, the others, the country,
+  "live" or the last-seen time and the number of flights; arrow keys and Enter pick one, Esc closes. An aircraft
+  on the map is selected as from the table; any other opens its history in the detail panel, marked "Not received
+  now", with its latest flight drawn on the map. Without history the box only searches the aircraft on the map.
+- **History section.** The detail panel of any selected aircraft (from the search, the table or the map) has a
+  collapsible History part: first and last seen, flights, days seen, callsigns, highest altitude, closest and
+  furthest distance, and the flights newest first, 20 at a time. When older flights were deleted by retention, it
+  says which period the details cover.
+- **Tracks.** The eye button of a flight draws its stored track on the map: dashed and thinner than live trails,
+  in the same altitude colors, with a hollow start dot and a filled end dot, above waypoints and coverage and under
+  live traffic. Hover anywhere on it for the time, altitude, speed and track there. "Show last 10 on map" and
+  "Clear tracks" do what they say, at most 20 tracks show at once, and the map fits them the first time (and on
+  "Fit"). Tracks stay through live and playback and when the panel is closed (a map click or ×); a "Clear tracks
+  (N)" chip in the map corner then removes them. Selecting another aircraft replaces them.
+- **Profile.** The Profile button charts the flight: altitude and ground speed over time, or for a Mode-S-only
+  flight its altitude samples with squawk changes marked. Hovering the chart marks the place on the map track, and
+  hovering the track marks the chart.
+- **Play.** ▶ Play winds the tape to 30 s before the flight and keeps the aircraft selected; it is disabled when
+  the tape no longer covers the flight.
+- **Links.** "Copy link" includes `history=<icao>` (an aircraft not on the map), `flights=<id,…>` (the shown
+  tracks) and `profile=<id>`, together with `t`/`speed` in playback.
 
 ### Own tile server
 

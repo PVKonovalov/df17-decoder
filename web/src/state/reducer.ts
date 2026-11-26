@@ -1,3 +1,4 @@
+import { MAX_TRACK_IDS } from '../api/history'
 import type { Aircraft, Coverage, CoverageGrid, MapConfig, Playback, Receiver, Stats, TrackPoint } from '../api/types'
 
 /** Trail window until the server's "trails" message arrives. */
@@ -18,6 +19,12 @@ export interface State {
   trails: ReadonlyMap<string, readonly TrailPoint[]> // from the server's track buffer, by ICAO
   trailWindowMs: number // data time kept before each trail's newest point
   selected: string | null
+  historyIcao: string | null // an aircraft not on the map, shown from the history only (search, ?history=)
+  historyFor: string | null // the aircraft whose stored flights historyTracks shows
+  historyTracks: readonly number[] // flight ids shown on the map, at most MAX_TRACK_IDS
+  historyProfile: number | null // the flight of historyFor whose profile is open
+  historyFitted: string | null // the aircraft the map was last fitted to automatically
+  fitSeq: number // incremented when the map should fit the shown tracks
   editing: string | null // the aircraft whose reference data is being edited; its selection outlives it
   held: Aircraft | null // last known data of the edited aircraft after it left the snapshots
   pendingSelect: string | null // aircraft to select once a snapshot contains it (from a shared link)
@@ -41,9 +48,14 @@ export type Action =
   | { type: 'trailPoints'; points: Record<string, TrailPoint[]> }
   | { type: 'snapshot'; aircraft: Aircraft[] }
   | { type: 'select'; icao: string; pan?: boolean }
-  | { type: 'clearSelection' }
+  | { type: 'showHistory'; icao: string }
+  | { type: 'clearSelection' } // closes the panel; the shown tracks stay
+  | { type: 'clearTracks' }
   | { type: 'selectAfterSeek'; icao: string }
   | { type: 'editing'; icao: string | null }
+  | { type: 'historyTracks'; icao: string; ids: readonly number[] }
+  | { type: 'fitTracks' }
+  | { type: 'historyProfile'; icao: string; id: number | null }
 
 export const initialState: State = {
   conn: 'connecting',
@@ -56,6 +68,12 @@ export const initialState: State = {
   trails: new Map(),
   trailWindowMs: DEFAULT_TRAIL_WINDOW_MS,
   selected: null,
+  historyIcao: null,
+  historyFor: null,
+  historyTracks: [],
+  historyProfile: null,
+  historyFitted: null,
+  fitSeq: 0,
   editing: null,
   held: null,
   pendingSelect: null,
@@ -110,19 +128,58 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         selected: action.icao,
+        historyIcao: null,
+        ...tracksFor(state, action.icao),
         ...(action.icao !== state.selected && { editing: null, held: null }),
         pendingSelect: null,
         pendingAfterSeek: false,
         panSeq: action.pan === true ? state.panSeq + 1 : state.panSeq,
       }
-    case 'clearSelection':
-      return state.selected === null && state.pendingSelect === null
-        ? state
-        : { ...state, selected: null, editing: null, held: null, pendingSelect: null, pendingAfterSeek: false }
-    case 'selectAfterSeek':
+    case 'showHistory': {
+      // an aircraft on the map is selected as from the table; any other is shown from its history
+      const a = state.aircraft.get(action.icao)
+      if (a !== undefined) {
+        return reducer(state, { type: 'select', icao: action.icao, pan: a.hasPosition })
+      }
       return {
         ...state,
         selected: null,
+        historyIcao: action.icao,
+        ...tracksFor(state, action.icao),
+        editing: null,
+        held: null,
+        pendingSelect: null,
+        pendingAfterSeek: false,
+      }
+    }
+    case 'clearSelection':
+      return state.selected === null &&
+        state.pendingSelect === null &&
+        state.historyIcao === null &&
+        state.historyProfile === null
+        ? state
+        : {
+            ...state,
+            selected: null,
+            historyIcao: null,
+            historyProfile: null,
+            historyFor: state.historyTracks.length > 0 ? state.historyFor : null,
+            editing: null,
+            held: null,
+            pendingSelect: null,
+            pendingAfterSeek: false,
+          }
+    case 'clearTracks':
+      return state.historyTracks.length === 0 && state.historyProfile === null
+        ? state
+        : { ...state, historyTracks: [], historyProfile: null, historyFor: null, historyFitted: null }
+    case 'selectAfterSeek':
+      // the aircraft's history shows until it appears on the map, which may be after the seek point
+      return {
+        ...state,
+        selected: null,
+        historyIcao: state.historyFor === action.icao ? action.icao : null,
+        ...tracksFor(state, action.icao),
         editing: null,
         held: null,
         pendingSelect: action.icao,
@@ -136,14 +193,55 @@ export function reducer(state: State, action: Action): State {
       return state.held === null
         ? { ...state, editing: null }
         : { ...state, editing: null, held: null, selected: null }
+    case 'historyTracks': {
+      const ids = [...new Set(action.ids)].slice(0, MAX_TRACK_IDS)
+      const fit = ids.length > 0 && state.historyFitted !== action.icao
+      const profile = state.historyFor === action.icao ? state.historyProfile : null
+      return {
+        ...state,
+        historyFor: ids.length > 0 || profile !== null ? action.icao : null,
+        historyTracks: ids,
+        historyProfile: profile,
+        ...(fit && { historyFitted: action.icao, fitSeq: state.fitSeq + 1 }),
+      }
+    }
+    case 'historyProfile': {
+      // opening a profile also shows its track when there is room, so the chart's hover has a point on the map
+      const own = state.historyFor === action.icao
+      const tracks = own ? state.historyTracks : []
+      if (action.id === null) {
+        return { ...state, historyProfile: null, historyFor: tracks.length > 0 ? action.icao : null, historyTracks: tracks }
+      }
+      const owned = { ...state, historyFor: action.icao, historyTracks: tracks }
+      const add = !tracks.includes(action.id) && tracks.length < MAX_TRACK_IDS
+      const next = add
+        ? reducer(owned, { type: 'historyTracks', icao: action.icao, ids: [...tracks, action.id] })
+        : owned
+      return { ...next, historyFor: action.icao, historyProfile: action.id }
+    }
+    case 'fitTracks':
+      return state.historyTracks.length === 0 ? state : { ...state, fitSeq: state.fitSeq + 1 }
   }
+}
+
+/** tracksFor keeps the shown tracks when icao is the aircraft they belong to and clears them otherwise. */
+function tracksFor(state: State, icao: string | null): Partial<State> {
+  return icao !== null && icao === state.historyFor
+    ? {}
+    : {
+        historyFor: null,
+        historyTracks: [],
+        historyProfile: null,
+        historyFitted: icao === state.historyFitted ? icao : null,
+      }
 }
 
 /**
  * applySnapshot replaces the aircraft table with a full snapshot and drops trails and the selection of aircraft
  * that are gone, except an aircraft being edited: its selection stays, with its last known data in held. A pending
- * selection is applied (with a pan when the aircraft has a position) once the aircraft is
- * in the snapshot.
+ * selection is applied (with a pan when the aircraft has a position) once the aircraft is in the snapshot, and a
+ * history-only aircraft becomes the selection when it appears. A gone selection with stored tracks shown becomes
+ * history-only.
  */
 function applySnapshot(state: State, list: Aircraft[]): State {
   const aircraft = new Map<string, Aircraft>()
@@ -162,11 +260,18 @@ function applySnapshot(state: State, list: Aircraft[]): State {
       aircraft,
       trails,
       selected: pending.icao,
+      historyIcao: null,
+      ...tracksFor(state, pending.icao),
       editing: null,
       held: null,
       pendingSelect: null,
       panSeq: pending.hasPosition ? state.panSeq + 1 : state.panSeq,
     }
+  }
+  // a history-only aircraft that appears on the map becomes the selection
+  const back = state.historyIcao === null ? undefined : aircraft.get(state.historyIcao)
+  if (back !== undefined) {
+    return { ...state, aircraft, trails, selected: back.icao, historyIcao: null }
   }
   if (state.selected === null || aircraft.has(state.selected)) {
     return { ...state, aircraft, trails, held: null }
@@ -174,6 +279,10 @@ function applySnapshot(state: State, list: Aircraft[]): State {
   if (state.editing === state.selected) {
     const held = state.aircraft.get(state.selected) ?? state.held
     return { ...state, aircraft, trails, held }
+  }
+  // a gone aircraft whose stored tracks are shown stays open from its history
+  if (state.historyFor === state.selected && (state.historyTracks.length > 0 || state.historyProfile !== null)) {
+    return { ...state, aircraft, trails, selected: null, historyIcao: state.selected, editing: null, held: null }
   }
   return { ...state, aircraft, trails, selected: null, editing: null, held: null }
 }

@@ -41,10 +41,11 @@ export function densityPaths(tl: Timeline, bucketMs: number, winFrom: number, wi
 
 /**
  * flightSeek returns where to seek for a stored flight: SEEK_BEFORE_FLIGHT_MS before it was first seen, no earlier
- * than the tape's start; null when the flight ended before the tape starts (retention removed it).
+ * than the tape's start (rounded up to a whole second, as seeks are); null when the flight ended before the tape
+ * starts (retention removed it).
  */
 export function flightSeek(firstSeen: string, lastSeen: string, tapeStart: string | undefined): string | null {
-  const start = tapeStart === undefined ? -Infinity : Date.parse(tapeStart)
+  const start = tapeStart === undefined ? -Infinity : Math.ceil(Date.parse(tapeStart) / 1000) * 1000
   if (Date.parse(lastSeen) < start) {
     return null
   }

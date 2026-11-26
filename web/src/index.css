@@ -1493,3 +1493,243 @@ body {
     display: none;
   }
 }
+
+/* Header aircraft search */
+.search {
+  position: relative;
+}
+
+.search input {
+  font: inherit;
+  width: 200px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.search-results {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  z-index: 1100; /* above the map */
+  width: max(100%, 320px);
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.search-results li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.search-results li.muted {
+  cursor: default;
+}
+
+.search-results li.active {
+  background: var(--sel-bg);
+}
+
+.search-main {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-sub {
+  font-size: 12px;
+}
+
+.search-live {
+  color: var(--ok);
+  font-size: 12px;
+}
+
+.history-badge {
+  color: var(--warn);
+}
+
+@media (max-width: 600px) {
+  .search,
+  .search input {
+    width: 100%;
+  }
+}
+
+/* History section of the detail panel */
+.history {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.history-toggle {
+  font: inherit;
+  font-weight: 600;
+  padding: 2px 0;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.history-toggle::before {
+  content: '▸ ';
+  color: var(--muted);
+}
+
+.history-toggle[aria-expanded='true']::before {
+  content: '▾ ';
+}
+
+.history-note {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+
+.history-actions button,
+.history-more,
+.history-play,
+.history-eye {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.history-actions button:disabled,
+.history-play:disabled,
+.history-eye:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.history-flights {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-flights li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-radius: 3px;
+}
+
+.history-flights li + li {
+  border-top: 1px solid var(--border);
+}
+
+.history-flights li.shown {
+  background: var(--sel-bg);
+}
+
+.history-eye {
+  padding: 0 4px;
+  line-height: 1.4;
+}
+
+.history-eye[aria-pressed='true'] {
+  color: var(--sel);
+  border-color: var(--sel);
+}
+
+.history-flight {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-flights .tag {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+
+.tag-adsb {
+  color: var(--chart-adsb);
+}
+
+.tag-modes {
+  color: var(--chart-modes);
+}
+
+.history-more {
+  margin-top: 4px;
+}
+
+.history-flights li {
+  flex-wrap: wrap;
+}
+
+.history-flights li.open {
+  outline: 1px solid var(--sel);
+}
+
+.history-play[aria-pressed='true'] {
+  color: var(--sel);
+  border-color: var(--sel);
+}
+
+.history-profile-row {
+  flex-basis: 100%;
+}
+
+.history-chart {
+  width: 100%;
+  height: 160px;
+}
+
+/* Stored tracks left on the map without their panel */
+.tracks-chip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--sel);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+
+.tracks-chip:hover {
+  background: var(--sel-bg);
+}

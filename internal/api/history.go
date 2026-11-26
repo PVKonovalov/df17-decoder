@@ -44,8 +44,10 @@ func validICAO(v string) bool {
 	return err == nil && len(v) == 6
 }
 
-// historyFlights serves GET /api/history/flights?from=&to=&icao=&q=&limit=: flights overlapping [from, to], newest
-// first, at most limit (default 100, max 1000); q matches the ICAO address or the start of the callsign.
+// historyFlights serves GET /api/history/flights?from=&to=&icao=&q=&before=&beforeId=&limit=: flights overlapping
+// [from, to], newest first, at most limit (default 100, max 1000); q matches the ICAO address or the start of the
+// callsign; before (unix ms, a first_seen) and beforeId (that row's id) page on. onTape tells whether the tape
+// covers the flight.
 func (s *server) historyFlights(w http.ResponseWriter, r *http.Request) {
 	if !s.historyStore(w) {
 		return
@@ -69,6 +71,16 @@ func (s *server) historyFlights(w http.ResponseWriter, r *http.Request) {
 	if len(q.Text) > 16 {
 		errs = append(errs, errors.New("q must be at most 16 characters"))
 	}
+	if v := p.Get("before"); v != "" {
+		if q.Before, err = strconv.ParseInt(v, 10, 64); err != nil || q.Before < 1 {
+			errs = append(errs, errors.New("before must be unix ms"))
+		}
+	}
+	if v := p.Get("beforeId"); v != "" {
+		if q.BeforeID, err = strconv.ParseInt(v, 10, 64); err != nil || q.BeforeID < 1 || q.Before == 0 {
+			errs = append(errs, errors.New("beforeId must be a positive integer, with before"))
+		}
+	}
 	if v := p.Get("limit"); v != "" {
 		if q.Limit, err = strconv.Atoi(v); err != nil || q.Limit < 1 || q.Limit > maxHistoryLimit {
 			errs = append(errs, fmt.Errorf("limit must be 1–%d", maxHistoryLimit))
@@ -83,6 +95,7 @@ func (s *server) historyFlights(w http.ResponseWriter, r *http.Request) {
 		s.historyError(w, err)
 		return
 	}
+	s.markOnTape(list)
 	writeJSON(w, http.StatusOK, list)
 }
 

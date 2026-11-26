@@ -64,3 +64,8 @@
 - 2026-11-25: Waypoints (decimal degrees, DMS text, icon, color, note) and waypointLabelMinZoom in /api/map and the map WebSocket message; map.fixture.json contract tests.
 - 2026-11-25: Map waypoints: WaypointLayer under all traffic (10 SVG chart symbols, labels from waypointLabelMinZoom, hover tooltip), legend switch; fictional demo waypoints.
 - 2026-11-25: Docs: README Waypoints section (coordinate formats, icons, waypointsFile, privacy) and CLAUDE.md architecture notes for geo coordinates, waypoint config, API and map layer.
+- 2026-11-26: Aircraft history API: schema v8 (aircraft_seen totals kept forever, backfill, max distance), /api/history/search, /aircraft/{icao}, /tracks, flight paging and onTape.
+- 2026-11-26: Header aircraft search (/api/history/search, keyboard, '/' shortcut; map-only without history); history-only detail panel for aircraft not received; URL history=.
+- 2026-11-26: History section in the detail panel (summary, paged flights, Play), dashed stored tracks on the map (hover info, fit once, max 20, cached); URL flights=.
+- 2026-11-26: Flight profile (lazy ECharts: altitude, ground speed or Mode-S squawks) with hover shared with the map track; URL profile=; Play fix at tape start; README and CLAUDE.md.
+- 2026-11-26: Closing the detail panel (map click or ×) keeps the stored tracks; a 'Clear tracks (N)' map chip removes them; another selection still replaces them.

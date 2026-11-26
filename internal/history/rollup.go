@@ -845,7 +845,6 @@ func (s *Store) pruneRollups(now time.Time) error {
 	}{
 		{"hourly", "hour", cut.Unix()}, {"hourly_country", "hour", cut.Unix()}, {"hourly_operator", "hour", cut.Unix()},
 		{"hourly_altitude", "hour", cut.Unix()}, {"notable_events", "t", cut.UnixMilli()},
-		{"aircraft_seen", "last_seen", cut.UnixMilli()},
 	} {
 		if _, err := s.db.Exec(`DELETE FROM `+q.table+` WHERE `+q.column+` < ?`, q.v); err != nil {
 			return fmt.Errorf("%s: %w", q.table, err)

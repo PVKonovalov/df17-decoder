@@ -218,9 +218,8 @@ func TestPruneRollups(t *testing.T) {
 	cut := t0.Add(time.Hour).UnixMilli()
 	if queryInt(t, s, `SELECT count(*) FROM hourly_altitude WHERE hour < ?`, t0.Add(time.Hour).Unix()) != 0 ||
 		queryInt(t, s, `SELECT count(*) FROM notable_events WHERE t < ?`, cut) != 0 ||
-		queryInt(t, s, `SELECT count(*) FROM aircraft_seen WHERE last_seen < ?`, cut) != 0 ||
-		queryInt(t, s, `SELECT count(*) FROM aircraft_seen`) == 0 {
-		t.Error("altitude, events or sightings of pruned hours kept")
+		queryInt(t, s, `SELECT count(*) FROM aircraft_seen WHERE last_seen < ?`, cut) == 0 {
+		t.Error("altitude or events of pruned hours kept, or sightings pruned")
 	}
 	keep := rollupStore(t, Options{})
 	if err := keep.rollupHour(ctx, t0, nil, sizes{}); err != nil {
