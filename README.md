@@ -152,7 +152,7 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/coverage/grid` | Coverage grid of 2° × 5 NM cells per altitude band (<10k, 10–25k, ≥25k ft, unknown): positions, and average/min/max signal in dBFS |
 | `GET /api/history/flights` | Stored flights overlapping `?from=&to=` (RFC 3339 or unix ms), newest first; `?icao=`, `?q=` (ICAO or callsign prefix), `?limit=` (100, max 1000), and paging with `?before=` (the last row's `firstSeen` in unix ms) and `?beforeId=` (its `id`). Each row has `durationS`, `maxAlt`, `minDistanceNm`, `maxDistanceNm`, `points` and `onTape` (the tape still covers it) |
 | `GET /api/history/search?q=&limit=20` | Aircraft (one row per ICAO address, not flights) whose address starts with `q` (1–6 hex digits) or whose callsign starts with `q` or, from 3 characters, contains it: `{icao, lastCallsign, callsigns, country, lastSeen, flights, adsb, live}`, live ones first, then by last seen (`limit` max 50) |
-| `GET /api/history/aircraft/{icao}?tz=` | One aircraft's history: first and last seen, flights and ADS-B over all time, and from the stored flights its callsigns with counts, max altitude, closest and furthest distance, days seen (in the IANA timezone `tz`), position quality, and `retainedFrom` (the oldest stored flight); 404 when never seen |
+| `GET /api/history/aircraft/{icao}` | One aircraft's history: first and last seen, flights and ADS-B over all time, days seen (local days in `stats.timezone`, also from `daily_aircraft`), and from the stored flights its callsigns with counts, max altitude, closest and furthest distance, position quality, and `retainedFrom` (the oldest stored flight); 404 when never seen |
 | `GET /api/history/tracks?ids=1,2,3` | The positions of up to 20 flights as parallel arrays `t`, `lat`, `lon`, `alt`, `gs`, `track` (null when unknown), for the map's stored tracks |
 | `GET /api/history/flights/{id}` | One stored flight with all its track points and altitude/squawk samples, or 404 |
 | `GET /api/history/at?t=` | Every flight's last position and sample at or before `t`, at most `tracker.ttl` old: the state of the sky at `t` |
@@ -166,6 +166,8 @@ In the container, `localhost` is the container itself. Point `source.url` at the
 | `GET /api/stats/range-daily?from=&to=&tz=` | The furthest position per day in the IANA timezone `tz` (default UTC), with its bearing and hour |
 | `GET /api/stats/altitude?from=&to=` | Stored positions per altitude band: ground, 5000 ft bands up to ≥40k, unknown |
 | `GET /api/stats/notable?from=&to=&limit=` | Emergency squawks, position losses (`gnssLost`) and first sightings of ICAO addresses: counts and up to `limit` (100) events, emergencies first, then losses, then newest |
+| `GET /api/stats/daily?from=&to=` | Per local day in `stats.timezone`: distinct aircraft (`adsb`, `modeS`), `new` (first seen ever that day, `newAdsb`, `newModeS`) and `returning`, with `learning` (the first 7 days of recording), `partial` (today so far) and `approximate` (days whose flights were deleted before a timezone change); plus the `timezone` |
+| `GET /api/stats/new?day=YYYY-MM-DD&limit=200` | The aircraft first seen on that day, in order: `icao`, `callsign` (of its first flight that day), `country`, `firstSeen`, `adsb` (`limit` max 1000) |
 | `GET /api/tape/extent` | The tape's oldest and newest recorded time and its recorded spans (silences over 60 s split them); 503 when the tape is disabled |
 | `GET /healthz` | 200 if a frame arrived within the last 30 s, or the source is still connected after delivering frames (`idle`: a quiet sky sends nothing); 503 before the first frame, or when the source is disconnected and silent. A decoder that stays connected but stops sending looks idle, so check `source.lastFrame` in `/api/stats` for that |
 
@@ -293,8 +295,13 @@ It refreshes once a minute and doesn't use the live WebSocket.
   forever (`retention: 0`) counts towards "the disk is full in…", everything still growing towards "the disk
   guard starts deleting in…". An amber warning appears below twice `tape.minFreeMB` free or after the guard has
   deleted segments, a red one when it is deleting or recording is paused.
+- **Today and Yesterday:** tiles with the different aircraft of the day, how many were new to us and the share
+  new, split into ADS-B and Mode-S only. Today counts so far. They don't follow the range picker.
 - **Aircraft per hour:** distinct ICAO addresses heard in each hour, stacked as ADS-B (any ADS-B flight in the
   hour) and Mode-S only, with decoded messages on a second axis. The current hour is lighter.
+- **Aircraft per day:** different aircraft per day, stacked as new and returning, with the share new as a line.
+  Learning-period days are hatched and today is lighter. Clicking a day lists its new aircraft under the chart:
+  ICAO, callsign, country, first-seen time and ADS-B or Mode-S. Each row opens the aircraft's history on the map.
 - **Hour × weekday:** the average aircraft per hour for each weekday and hour, in the browser's timezone.
 - **Countries:** aircraft-hours by country of registration (from the ICAO address): each aircraft counts once
   per hour it was heard, so long ranges add up without keeping every flight. The top 15, the rest as "Other".
@@ -314,11 +321,33 @@ It refreshes once a minute and doesn't use the live WebSocket.
   through from start to end.
 - **Notable aircraft:** emergency squawks (7500, 7600, 7700; when first seen in the flight), flights that lost their
   position (first time in the flight) and ICAO addresses heard for the first time. Each row opens playback at that moment with the aircraft selected. "First" means since the
-  flight history began: the first sightings of addresses are remembered for `stats.retention`, longer than flights.
+  flight history began: the first sightings of addresses are never deleted.
   When upgrading an existing database, every aircraft already in it is "new" at its first stored flight, so the
   list becomes meaningful after a while.
 
-Clicking an hour bar, a heatmap cell (its latest hour) or a day opens the map in playback at that hour.
+Clicking an hour bar, a heatmap cell (its latest hour) or a max-range day opens the map in playback at that hour.
+
+**Daily totals: definitions.** Hourly rows can't be added up into daily totals, because an aircraft heard in five
+hours would count five times. So the service keeps one small row per aircraft per day, `daily_aircraft`, about a
+few hundred rows a day.
+
+- **Day:** a calendar day in `stats.timezone`. When that differs from the browser's timezone, the chart says so.
+- **Recorded that day:** the aircraft has at least one flight overlapping the day, ADS-B or Mode-S only. It counts
+  as ADS-B if it sent ADS-B at any time that day.
+- **New to us:** the day of the aircraft's first sighting ever. First sightings (`aircraft_seen`) are never
+  deleted, so an aircraft that comes back after years, or after longer than any retention, is still returning, not
+  new.
+- **Returning:** recorded that day minus new.
+- **Learning period:** the first 7 days after the oldest sighting. When recording starts nearly everything is
+  new, so these days are hatched and their high numbers shouldn't be read as a trend.
+- **Today:** comes from the same table, which is filled by the hourly rollup, plus the hours not rolled up yet,
+  computed from the flights. It is marked "so far".
+- **Approximate days:** after `stats.timezone` changes, the table is rebuilt in the background from the stored
+  flights. Days whose flights were already deleted by `history.retention` can't be rebuilt; they keep their old
+  counts, are logged, and are marked approximate in the tooltip and the API. The first build after an upgrade also
+  runs in the background, and the first stored day may be partial if flight retention had deleted older flights.
+- **Retention:** daily rows are deleted with `stats.retention`, like the other rollups. "Days seen" in the
+  aircraft history panel uses them too, so it outlives flight retention.
 
 The charts come from hourly rollups in the flight history database, so they need `history.enabled`. A job
 computes the previous hour at five past each hour; at start it backfills missing hours from the stored flights in
@@ -332,7 +361,11 @@ callsign prefix and altitude band heard: about 1–2 KB per hour at a busy site,
 ```yaml
 stats:
   retention: 8760h   # rollups older than this are deleted daily; 0 keeps them forever
+  timezone: Europe/Berlin   # days of the daily totals (IANA name); empty: the server's zone
 ```
+
+Set `stats.timezone` to your own zone. When it is empty the server's zone is used, and under systemd or in the
+Docker image that is often UTC, which would end your days at a different hour than your clock.
 
 ## Tape recorder and playback
 

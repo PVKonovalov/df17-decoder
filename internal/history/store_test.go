@@ -19,6 +19,9 @@ var t0 = time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 func open(t *testing.T, file string, opt Options) *Store {
 	t.Helper()
 	opt.File = file
+	if opt.Location == nil {
+		opt.Location = time.UTC
+	}
 	s, err := Open(opt)
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +59,8 @@ func point(at time.Time, alt int) tracker.TrackPoint {
 func TestOpen_CreatesSchema(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "h.db")
 	s := open(t, file, Options{})
-	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 8 {
-		t.Errorf("schema version %d, want 8", v)
+	if v := queryInt(t, s, `SELECT value FROM meta WHERE key = 'schema_version'`); v != int64(SchemaVersion) || SchemaVersion != 9 {
+		t.Errorf("schema version %d, want 9", v)
 	}
 	if v := queryInt(t, s, `PRAGMA auto_vacuum`); v != 2 {
 		t.Errorf("auto_vacuum = %d, want 2 (incremental)", v)
@@ -66,7 +69,7 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "wal" {
 		t.Errorf("journal_mode = %q (%v)", mode, err)
 	}
-	for _, idx := range []string{"flights_time", "flights_icao", "flights_callsign", "positions_t"} {
+	for _, idx := range []string{"flights_time", "flights_icao", "flights_callsign", "positions_t", "daily_aircraft_icao"} {
 		if queryInt(t, s, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, idx) != 1 {
 			t.Errorf("index %s missing", idx)
 		}

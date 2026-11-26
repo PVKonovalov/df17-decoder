@@ -3,17 +3,9 @@ import type { AircraftHistory } from '../api/history'
 import type { Action } from '../state/reducer'
 import { CopyLinkButton, routeText, trackerUrl, typeText, useReference, type Moment } from './DetailPanel'
 
-/** localZone is the browser's IANA time zone for the server's day counts; UTC when unknown. */
-export function localZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-}
-
+/** aircraftHistoryUrl is the history summary of icao (days counted in the server's stats.timezone). */
 export function aircraftHistoryUrl(icao: string): string {
-  return `/api/history/aircraft/${icao}?tz=${encodeURIComponent(localZone())}`
+  return `/api/history/aircraft/${icao}`
 }
 
 const SUMMARY_TTL_MS = 10_000

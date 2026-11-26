@@ -141,7 +141,7 @@ func TestAircraftSeen_SurvivesRetention(t *testing.T) {
 	if err := s.pruneRollups(now); err != nil {
 		t.Fatal(err)
 	}
-	a, err := s.Aircraft(context.Background(), "ab12cd", time.UTC)
+	a, err := s.Aircraft(context.Background(), "ab12cd")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestAircraftSummary(t *testing.T) {
 	s.Quality(2, tracker.QualityChange{T: t0.Add(day + time.Minute).UnixMilli(), Quality: tracker.QualityLost})
 	writeAll(t, s)
 
-	a, err := s.Aircraft(context.Background(), "AB12CD", time.UTC)
+	a, err := s.Aircraft(context.Background(), "AB12CD")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,13 +279,15 @@ func TestAircraftSummary(t *testing.T) {
 		t.Errorf("retainedFrom %v, want the oldest flight of any aircraft", a.RetainedFrom)
 	}
 	tokyo, _ := time.LoadLocation("Asia/Tokyo")
-	if a, _ := s.Aircraft(context.Background(), "AB12CD", tokyo); a.DaysSeen != 3 {
+	s.opt.Location = tokyo
+	if a, _ := s.Aircraft(context.Background(), "AB12CD"); a.DaysSeen != 3 {
 		t.Errorf("days seen in Tokyo %d, want 3", a.DaysSeen)
 	}
-	if m, _ := s.Aircraft(context.Background(), "C0FFEE", time.UTC); m.Quality != nil || m.ADSB {
+	s.opt.Location = time.UTC
+	if m, _ := s.Aircraft(context.Background(), "C0FFEE"); m.Quality != nil || m.ADSB {
 		t.Errorf("Mode-S summary %+v", m)
 	}
-	if _, err := s.Aircraft(context.Background(), "ABCDEF", time.UTC); err != ErrNoAircraft {
+	if _, err := s.Aircraft(context.Background(), "ABCDEF"); err != ErrNoAircraft {
 		t.Errorf("unknown address: %v", err)
 	}
 }

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AltitudeBand, CountryCount, HourRow, Notable, OperatorCount, RangeDay, StorageReport } from '../api/stats'
+import type { AltitudeBand, CountryCount, DailyTotals, HourRow, Notable, OperatorCount, RangeDay, StorageReport } from '../api/stats'
 import { linkClick, navigate } from '../route'
 import { gnssShare, heatmap, momentSearch, topWithOther } from './aggregate'
 import { Chart } from './Chart'
+import { DailyChart, DailyTiles } from './DailyAircraft'
 import { altitudeOption, healthOption, heatmapOption, hourlyOption, qualityOption, rangeOption, rankingOption } from './charts'
 import type { ChartClick } from './echarts'
 import { parseRange, rangeSearch } from './range'
@@ -74,6 +75,10 @@ export default function StatsPage() {
   const operators = useJson<OperatorCount[]>(`/api/stats/operators?${q}&limit=500`, tick)
   const altitude = useJson<AltitudeBand[]>(`/api/stats/altitude?${q}`, tick)
   const notable = useJson<Notable>(`/api/stats/notable?${q}`, tick)
+  const daily = useJson<DailyTotals>(`/api/stats/daily?${q}`, tick)
+  // today and yesterday, whatever the range
+  const recent = useJson<DailyTotals>(`/api/stats/daily?from=${new Date(now.getTime() - 48 * 3600_000).toISOString()}&to=${now.toISOString()}`)
+  const [newDay, setNewDay] = useState<string | null>(null)
 
   const rows = useMemo(() => (hourly.status === 'ok' ? hourly.data : []), [hourly])
   const hm = useMemo(() => heatmap(rows, tz), [rows, tz])
@@ -138,6 +143,7 @@ export default function StatsPage() {
             <p className="stats-note">{note(storage, () => null) ?? ''}</p>
           </section>
         )}
+        <DailyTiles daily={recent} />
         <Chart
           title="Aircraft per hour"
           hint="Distinct aircraft heard in each hour; the current hour is lighter. Click a bar to replay that hour."
@@ -147,6 +153,7 @@ export default function StatsPage() {
             openMoment(rows[p.dataIndex]?.hour)
           }}
         />
+        <DailyChart daily={daily} theme={theme} browserTz={tz} off={HISTORY_OFF} day={newDay} onDay={setNewDay} />
         <div className="stats-grid">
           <Chart
             title="Hour × weekday"

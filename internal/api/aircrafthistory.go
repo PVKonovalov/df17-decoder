@@ -85,8 +85,8 @@ func (s *server) historySearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, found[:min(len(found), limit)])
 }
 
-// historyAircraft serves GET /api/history/aircraft/{icao}?tz=: the address's summary over all time and over the
-// flights still stored, with days counted in the IANA timezone tz (default UTC); 404 when it was never seen.
+// historyAircraft serves GET /api/history/aircraft/{icao}: the address's summary over all time and over the
+// flights still stored, with days counted in stats.timezone; 404 when it was never seen.
 func (s *server) historyAircraft(w http.ResponseWriter, r *http.Request) {
 	if !s.historyStore(w) {
 		return
@@ -96,12 +96,7 @@ func (s *server) historyAircraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "icao must be 6 hex digits")
 		return
 	}
-	loc, err := parseTZ(r.URL.Query().Get("tz"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a, err := s.History.Aircraft(r.Context(), icao, loc)
+	a, err := s.History.Aircraft(r.Context(), icao)
 	switch {
 	case errors.Is(err, history.ErrNoAircraft):
 		writeError(w, http.StatusNotFound, "aircraft not in the history")

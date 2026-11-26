@@ -71,6 +71,36 @@ export interface Notable {
   events: NotableEvent[]
 }
 
+/** history.DailyRow: one local day of GET /api/stats/daily */
+export interface DailyRow {
+  day: string // YYYY-MM-DD in the server's stats.timezone
+  aircraft: number
+  adsb: number
+  modeS: number
+  new: number
+  newAdsb: number
+  newModeS: number
+  returning: number
+  learning: boolean // the first days of recording: nearly everything is new
+  partial: boolean // today, so far
+  approximate: boolean // flights deleted or counted in another timezone
+}
+
+/** history.DailyTotals: GET /api/stats/daily */
+export interface DailyTotals {
+  timezone: string
+  days: DailyRow[]
+}
+
+/** history.NewAircraft: GET /api/stats/new?day= */
+export interface NewAircraft {
+  icao: string
+  callsign?: string
+  country?: string
+  firstSeen: string
+  adsb: boolean
+}
+
 /** history.CountryCount: GET /api/stats/countries */
 export interface CountryCount {
   country: string
@@ -148,3 +178,27 @@ export const notableEventKeys = {
   squawk: true,
   flightId: true,
 } satisfies Keys<NotableEvent>
+
+export const dailyRowKeys = {
+  day: true,
+  aircraft: true,
+  adsb: true,
+  modeS: true,
+  new: true,
+  newAdsb: true,
+  newModeS: true,
+  returning: true,
+  learning: true,
+  partial: true,
+  approximate: true,
+} satisfies Keys<DailyRow>
+
+export const dailyTotalsKeys = { timezone: true, days: true } satisfies Keys<DailyTotals>
+
+export const newAircraftKeys = {
+  icao: true,
+  callsign: true,
+  country: true,
+  firstSeen: true,
+  adsb: true,
+} satisfies Keys<NewAircraft>

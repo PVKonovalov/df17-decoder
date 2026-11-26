@@ -121,6 +121,7 @@ func New(cfg config.Config, log *slog.Logger) (*Service, error) {
 			Logger:         log,
 			Receiver:       &receiver,
 			StatsRetention: cfg.Stats.Retention.D(),
+			Location:       cfg.Stats.Location(),
 		}); err != nil {
 			return nil, err
 		}

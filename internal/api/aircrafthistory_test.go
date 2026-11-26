@@ -28,7 +28,7 @@ import (
 // live.
 func fakeAircraftHandler(t *testing.T) http.Handler {
 	t.Helper()
-	store, err := history.Open(history.Options{File: filepath.Join(t.TempDir(), "h.db")})
+	store, err := history.Open(history.Options{File: filepath.Join(t.TempDir(), "h.db"), Location: time.UTC})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestHistorySearch(t *testing.T) {
 func TestHistoryAircraft(t *testing.T) {
 	h := fakeAircraftHandler(t)
 	var a history.AircraftSummary
-	if code := getJSON(t, h, "/api/history/aircraft/ab12cd?tz=Europe/Paris", &a); code != http.StatusOK {
+	if code := getJSON(t, h, "/api/history/aircraft/ab12cd", &a); code != http.StatusOK {
 		t.Fatal(code)
 	}
 	if a.Flights != 2 || a.Live || len(a.Callsigns) != 2 || a.DaysSeen != 1 || !a.FirstSeen.Equal(hT0) ||
@@ -126,9 +126,8 @@ func TestHistoryAircraft(t *testing.T) {
 		t.Errorf("C0FFEE not live: %+v", a)
 	}
 	for p, want := range map[string]int{
-		"/api/history/aircraft/ABCDEF":          http.StatusNotFound,
-		"/api/history/aircraft/XYZ":             http.StatusBadRequest,
-		"/api/history/aircraft/AB12CD?tz=Local": http.StatusBadRequest,
+		"/api/history/aircraft/ABCDEF": http.StatusNotFound,
+		"/api/history/aircraft/XYZ":    http.StatusBadRequest,
 	} {
 		if code := getJSON(t, h, p, nil); code != want {
 			t.Errorf("%s: %d, want %d", p, code, want)

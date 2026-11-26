@@ -91,5 +91,30 @@
         "flightId": 42
       }
     ]
+  },
+  "daily": {
+    "timezone": "Europe/Berlin",
+    "days": [
+      {
+        "day": "2026-11-25",
+        "aircraft": 214,
+        "adsb": 171,
+        "modeS": 43,
+        "new": 38,
+        "newAdsb": 31,
+        "newModeS": 7,
+        "returning": 176,
+        "learning": false,
+        "partial": false,
+        "approximate": false
+      }
+    ]
+  },
+  "newAircraft": {
+    "icao": "AB12CD",
+    "callsign": "FAKE101",
+    "country": "United States",
+    "firstSeen": "2026-11-25T06:12:40Z",
+    "adsb": true
   }
 }

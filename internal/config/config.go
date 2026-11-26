@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	_ "time/tzdata" // IANA zones for stats.timezone also where the system has none (distroless)
 
 	"github.com/PVKonovalov/df17-decoder/internal/geo"
 	"github.com/PVKonovalov/df17-decoder/internal/tape"
@@ -134,6 +135,45 @@ type Tape struct {
 // Stats configures the hourly rollups (they need history.enabled).
 type Stats struct {
 	Retention Duration `yaml:"retention"` // 0 keeps them forever
+	Timezone  string   `yaml:"timezone"`  // IANA name of the days in the daily totals; empty: the server's local zone
+}
+
+// Location returns the stats timezone: Timezone, or the server's local zone when it is empty (by its IANA name
+// from TZ or /etc/localtime when that can be found, else time.Local); time.Local also when invalid, which
+// Validate reports.
+func (s Stats) Location() *time.Location {
+	name := s.Timezone
+	if name == "" {
+		name = localZoneName()
+	}
+	if name == "" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.Local
+	}
+	return loc
+}
+
+// localZoneName is the IANA name of the server's zone, or "".
+func localZoneName() string {
+	if tz, ok := os.LookupEnv("TZ"); ok {
+		tz = strings.TrimPrefix(tz, ":")
+		if tz == "" {
+			return "UTC"
+		}
+		if strings.HasPrefix(tz, "/") {
+			_, tz, _ = strings.Cut(tz, "zoneinfo/")
+		}
+		return tz
+	}
+	link, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return ""
+	}
+	_, name, _ := strings.Cut(link, "zoneinfo/")
+	return name
 }
 
 // Playback limits the per-connection tape playback sessions.
@@ -315,6 +355,10 @@ func (c Config) Validate() error {
 	check(c.Tape.MinFreeMB >= 0, "tape.minFreeMB must be >= 0, got %d", c.Tape.MinFreeMB)
 	check(c.Playback.MaxSessions >= 0, "playback.maxSessions must be >= 0, got %d", c.Playback.MaxSessions)
 	check(c.Stats.Retention >= 0, "stats.retention must be >= 0, got %s", c.Stats.Retention.D())
+	if tz := c.Stats.Timezone; tz != "" {
+		_, err := time.LoadLocation(tz)
+		check(err == nil && tz != "Local", "stats.timezone must be an IANA name such as Europe/Berlin (empty: the server's local zone), got %q", tz)
+	}
 	check(c.Playback.IdleTimeout >= 0, "playback.idleTimeout must be >= 0, got %s", c.Playback.IdleTimeout.D())
 	if c.Tape.Enabled {
 		if err := checkTapeDir(c.Tape.Dir); err != nil {

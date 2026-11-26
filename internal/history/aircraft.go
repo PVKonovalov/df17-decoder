@@ -375,8 +375,10 @@ type AircraftSummary struct {
 	RetainedFrom    *time.Time      `json:"retainedFrom,omitempty"`
 }
 
-// Aircraft returns the summary of icao (upper-case hex), with days counted in loc, or ErrNoAircraft.
-func (s *Store) Aircraft(ctx context.Context, icao string, loc *time.Location) (AircraftSummary, error) {
+// Aircraft returns the summary of icao (upper-case hex), or ErrNoAircraft. Days are local days in
+// Options.Location: those in daily_aircraft (which outlives flight retention) and those of the stored flights.
+func (s *Store) Aircraft(ctx context.Context, icao string) (AircraftSummary, error) {
+	loc := s.location()
 	icao = strings.ToUpper(icao)
 	a := AircraftSummary{ICAO: icao, Country: country(icao), Callsigns: []CallsignCount{}}
 	var (
@@ -442,6 +444,22 @@ func (s *Store) Aircraft(ctx context.Context, icao string, loc *time.Location) (
 	}
 
 	days := map[string]bool{}
+	rows, err = s.ro.QueryContext(ctx, `SELECT day FROM daily_aircraft WHERE icao = ?`, icao)
+	if err != nil {
+		return a, fmt.Errorf("history: %w", err)
+	}
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			rows.Close()
+			return a, fmt.Errorf("history: %w", err)
+		}
+		days[d] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return a, fmt.Errorf("history: %w", err)
+	}
 	rows, err = s.ro.QueryContext(ctx, `SELECT first_seen, last_seen FROM flights WHERE icao = ?`, icao)
 	if err != nil {
 		return a, fmt.Errorf("history: %w", err)

@@ -30,7 +30,7 @@ func statsHandler(t *testing.T, statsRetention time.Duration) http.Handler {
 	t.Helper()
 	rx := geo.Point{Lat: 25.07, Lon: 22.87}
 	store, err := history.Open(history.Options{File: filepath.Join(t.TempDir(), "h.db"), Receiver: &rx,
-		StatsRetention: statsRetention, Now: func() time.Time { return sNow }})
+		StatsRetention: statsRetention, Now: func() time.Time { return sNow }, Location: time.UTC})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestStats_RangeClampedToRetention(t *testing.T) {
 
 func TestStats_DisabledAndStorage(t *testing.T) {
 	h := historyHandler(t, false)
-	for _, p := range []string{"hourly", "countries", "operators", "range-daily", "altitude", "notable"} {
+	for _, p := range []string{"hourly", "countries", "operators", "range-daily", "altitude", "notable", "daily", "new?day=2026-11-20"} {
 		if code := getJSON(t, h, "/api/stats/"+p, nil); code != http.StatusServiceUnavailable {
 			t.Errorf("%s: %d, want 503", p, code)
 		}
@@ -175,6 +175,7 @@ func TestStatsContract(t *testing.T) {
 		"storage": &storage.Report{}, "hourly": &history.HourRow{}, "country": &history.CountryCount{},
 		"operator": &history.OperatorCount{}, "rangeDay": &history.RangeDay{}, "altitude": &history.AltitudeBand{},
 		"notable": &history.Notable{}, "notableEvent": &history.NotableEvent{},
+		"daily": &history.DailyTotals{}, "newAircraft": &history.NewAircraft{},
 	} {
 		populate(t, reflect.ValueOf(v).Elem())
 		got, err := json.Marshal(v)
@@ -191,6 +192,40 @@ func TestStatsContract(t *testing.T) {
 		}
 		if g, w := flatKeys(t, got, ""), flatKeys(t, want, ""); !slices.Equal(g, w) {
 			t.Errorf("%s JSON keys drifted from stats.fixture.json\n Go:      %v\n fixture: %v", name, g, w)
+		}
+	}
+}
+
+func TestStatsDailyAndNew(t *testing.T) {
+	h := statsHandler(t, 0)
+	var d history.DailyTotals
+	if code := getJSON(t, h, "/api/stats/daily", &d); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	want := history.DailyRow{Day: "2026-11-20", Aircraft: 2, ADSB: 1, ModeS: 1, New: 2, NewADSB: 1, NewModeS: 1,
+		Learning: true, Partial: true}
+	if d.Timezone != "UTC" || len(d.Days) != 1 || d.Days[0] != want {
+		t.Errorf("daily %+v", d)
+	}
+
+	var list []history.NewAircraft
+	if code := getJSON(t, h, "/api/stats/new?day=2026-11-20", &list); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	if len(list) != 2 || list[0].ICAO != "4840D6" || list[0].Callsign != "KLM1023" || !list[0].ADSB ||
+		list[1].ICAO != "738ABC" || list[1].ADSB {
+		t.Errorf("new %+v", list)
+	}
+	if getJSON(t, h, "/api/stats/new?day=2026-11-20&limit=1", &list); len(list) != 1 {
+		t.Errorf("limit 1: %+v", list)
+	}
+	if getJSON(t, h, "/api/stats/new?day=2026-11-21", &list); list == nil || len(list) != 0 {
+		t.Errorf("a day without new aircraft: %+v", list)
+	}
+	for _, p := range []string{"/api/stats/new", "/api/stats/new?day=20.11.2026", "/api/stats/new?day=2026-11-20&limit=0",
+		"/api/stats/new?day=2026-11-20&limit=1001", "/api/stats/daily?from=x"} {
+		if code := getJSON(t, h, p, nil); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", p, code)
 		}
 	}
 }

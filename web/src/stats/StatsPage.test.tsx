@@ -27,7 +27,7 @@ function serve(routes: Record<string, unknown>) {
     'fetch',
     vi.fn((url: string) => {
       const path = url.split('?')[0] ?? ''
-      const body = routes[path]
+      const body = routes[path] ?? (path === '/api/stats/daily' ? { timezone: 'UTC', days: [] } : undefined)
       return Promise.resolve(body === 503 ? new Response('{"error":"off"}', { status: 503 }) : new Response(JSON.stringify(body ?? [])))
     }),
   )
@@ -74,7 +74,7 @@ describe('StatsPage', () => {
   it('explains a disabled history and missing data instead of empty frames', async () => {
     serve({
       '/api/storage': statsFixture.storage,
-      ...Object.fromEntries(['hourly', 'countries', 'operators', 'range-daily', 'altitude', 'notable'].map((p) => [`/api/stats/${p}`, 503])),
+      ...Object.fromEntries(['hourly', 'countries', 'operators', 'range-daily', 'altitude', 'notable', 'daily'].map((p) => [`/api/stats/${p}`, 503])),
     })
     render(<StatsPage />)
     expect((await screen.findAllByText(/set history.enabled: true/)).length).toBeGreaterThan(1)
@@ -84,6 +84,7 @@ describe('StatsPage', () => {
     render(<StatsPage />)
     expect(await screen.findByText(/No data yet: rollups start after the first full hour/)).toBeTruthy()
     expect(screen.getByText('No aircraft in this range.')).toBeTruthy()
+    expect(screen.getByText('No data yet: daily totals start after the first full hour.')).toBeTruthy()
     expect(screen.getAllByText('No positions in this range.').length).toBe(2) // range and altitude
     expect(screen.getByText('No airline callsigns in this range.')).toBeTruthy()
     expect(screen.getByText(/No receiver counters yet/)).toBeTruthy()

@@ -16,6 +16,8 @@ const (
 	defaultStatsLimit = 20
 	defaultNotable    = 100
 	maxStatsLimit     = 500
+	defaultNewLimit   = 200
+	maxNewLimit       = 1000
 )
 
 var tzRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*$`)
@@ -195,4 +197,52 @@ func parseTZ(v string) (*time.Location, error) {
 		return nil, fmt.Errorf("tz: unknown timezone %q", v)
 	}
 	return loc, nil
+}
+
+// statsDaily serves GET /api/stats/daily?from=&to=: distinct and new aircraft per local day in stats.timezone.
+func (s *server) statsDaily(w http.ResponseWriter, r *http.Request) {
+	if !s.historyStore(w) {
+		return
+	}
+	from, to, err := s.statsRange(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	d, err := s.History.Daily(r.Context(), from, to, s.Now())
+	if err != nil {
+		s.historyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// statsNew serves GET /api/stats/new?day=YYYY-MM-DD&limit=200: the aircraft first seen on that day, in order.
+func (s *server) statsNew(w http.ResponseWriter, r *http.Request) {
+	if !s.historyStore(w) {
+		return
+	}
+	day := r.URL.Query().Get("day")
+	var errs []error
+	if _, err := time.Parse(time.DateOnly, day); err != nil {
+		errs = append(errs, fmt.Errorf("day must be YYYY-MM-DD, got %q", day))
+	}
+	limit := defaultNewLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxNewLimit {
+			errs = append(errs, fmt.Errorf("limit must be 1–%d", maxNewLimit))
+		}
+		limit = n
+	}
+	if err := errors.Join(errs...); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list, err := s.History.NewOn(r.Context(), day, limit)
+	if err != nil {
+		s.historyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }

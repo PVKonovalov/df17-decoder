@@ -89,6 +89,8 @@ func TestLoad_Errors(t *testing.T) {
 		{"bad scheme", "source:\n  url: http://a:1\n", []string{"scheme must be"}},
 		{"tcp without port", "source:\n  url: tcp://localhost\n", []string{"host:port"}},
 		{"negative stats retention", "stats:\n  retention: -1h\n", []string{"stats.retention"}},
+		{"unknown stats timezone", "stats:\n  timezone: Mars/Olympus\n", []string{"stats.timezone"}},
+		{"Local stats timezone", "stats:\n  timezone: Local\n", []string{"stats.timezone"}},
 		{"negative playback sessions", "playback:\n  maxSessions: -1\n", []string{"playback.maxSessions"}},
 		{"tape with a bad start", "source:\n  url: tape://tape?from=noon\n", []string{"source.url", "RFC 3339"}},
 		{"bad log level", "log:\n  level: verbose\n", []string{"log.level"}},
@@ -365,5 +367,19 @@ func TestLoad_DemoConfig(t *testing.T) {
 	}
 	if len(icons) != len(WaypointIcons) {
 		t.Errorf("demo waypoints use %d of the %d icons", len(icons), len(WaypointIcons))
+	}
+}
+
+func TestStatsLocation(t *testing.T) {
+	t.Setenv("TZ", "Asia/Tokyo")
+	if loc := (Stats{}).Location(); loc.String() != "Asia/Tokyo" {
+		t.Errorf("empty timezone gives %v, want the local zone by name", loc)
+	}
+	t.Setenv("TZ", "Not/AZone")
+	if (Stats{}).Location() != time.Local {
+		t.Error("an unknown TZ is not time.Local")
+	}
+	if loc := (Stats{Timezone: "Europe/Berlin"}).Location(); loc.String() != "Europe/Berlin" {
+		t.Errorf("location %v", loc)
 	}
 }

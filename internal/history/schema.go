@@ -107,6 +107,12 @@ var migrations = []string{
 	ALTER TABLE flights ADD COLUMN max_distance_nm REAL;
 	CREATE INDEX flights_callsign ON flights(callsign, first_seen);
 	INSERT INTO meta(key, value) VALUES('backfill_aircraft', '-1');`,
+
+	// daily aircraft (daily.go): one row per address and local day in stats.timezone, built from the flights in
+	// the background (meta daily_tz) and kept up by the hourly rollup
+	`CREATE TABLE daily_aircraft (day TEXT NOT NULL, icao TEXT NOT NULL, adsb INTEGER NOT NULL,
+		PRIMARY KEY (day, icao)) WITHOUT ROWID;
+	CREATE INDEX daily_aircraft_icao ON daily_aircraft(icao, day);`,
 }
 
 // SchemaVersion is the schema version this build writes.

@@ -80,6 +80,9 @@ stats:
   # Hourly rollups (aircraft per hour, countries, operators, range) need history.enabled.
   # They are kept this long, independently of history.retention; 0 keeps them forever.
   retention: 8760h
+  # Days of the daily aircraft totals ("Aircraft per day", "new to us") as an IANA name, e.g. Europe/Berlin.
+  # Empty uses the server's local zone, which is often UTC under systemd or Docker: better set it.
+  timezone: ""
 
 api:
   # HTTP listen address.

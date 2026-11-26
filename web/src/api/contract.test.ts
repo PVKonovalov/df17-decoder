@@ -19,6 +19,9 @@ import {
   altitudeKeys,
   countryKeys,
   hourRowKeys,
+  dailyRowKeys,
+  dailyTotalsKeys,
+  newAircraftKeys,
   notableEventKeys,
   notableKeys,
   operatorKeys,
@@ -99,6 +102,9 @@ describe('Stats contract', () => {
       [altitudeKeys, statsFixture.altitude],
       [notableKeys, { ...statsFixture.notable, events: true }],
       [notableEventKeys, statsFixture.notable.events[0] ?? {}],
+      [dailyTotalsKeys, { ...statsFixture.daily, days: true }],
+      [dailyRowKeys, statsFixture.daily.days[0] ?? {}],
+      [newAircraftKeys, statsFixture.newAircraft],
     ]
     for (const [keys, fx] of pairs) {
       expect(nested(keys).sort()).toEqual(nested(fx).sort())

@@ -269,6 +269,14 @@ func (s *Store) RunRollups(ctx context.Context, src RollupSources) {
 		s.backfill(ctx, now)
 	}(now)
 	defer func() { <-backfilled }()
+	dailyBuilt := make(chan struct{})
+	go func() {
+		defer close(dailyBuilt)
+		if err := s.buildDaily(ctx); err != nil && ctx.Err() == nil {
+			s.opt.Logger.Warn("daily aircraft: building failed", "err", err)
+		}
+	}()
+	defer func() { <-dailyBuilt }()
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -462,6 +470,7 @@ type hourStats struct {
 	altitude           map[int]int
 	events             []NotableEvent
 	seen               map[string][2]int64 // icao → first and last sighting in the hour (unix ms)
+	days               map[dayICAO]bool    // the local days of the hour's aircraft → ADS-B that day
 	quality            qualityCounts
 }
 
@@ -494,8 +503,9 @@ type flightRef struct{ icao, callsign string }
 // computeHour aggregates the flights and positions in [start, end) from db (the writer or a read-only handle).
 func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Time) (hourStats, error) {
 	h := hourStats{start: start, countries: map[string]int{}, operators: map[string]int{}, altitude: map[int]int{},
-		seen: map[string][2]int64{}}
+		seen: map[string][2]int64{}, days: map[dayICAO]bool{}}
 	lo, hi := start.UnixMilli(), end.UnixMilli()
+	loc := s.location()
 
 	rows, err := db.QueryContext(ctx, `SELECT f.id, f.icao, f.adsb, coalesce(f.callsign, ''), coalesce(f.squawk, ''),
 		f.first_seen, f.last_seen, (SELECT min(g.first_seen) FROM flights g WHERE g.icao = f.icao),
@@ -524,6 +534,7 @@ func (s *Store) computeHour(ctx context.Context, db *sql.DB, start, end time.Tim
 			return h, err
 		}
 		adsb[icao] = adsb[icao] || isADSB
+		addDays(h.days, icao, isADSB, max(first, lo), min(last, hi-1), loc, "")
 		flights[id] = flightRef{icao, callsign}
 		if sn, ok := h.seen[icao]; ok {
 			h.seen[icao] = [2]int64{min(sn[0], first), max(sn[1], last)}
@@ -766,6 +777,9 @@ func (s *Store) rollupHour(ctx context.Context, hour time.Time, live *liveHour, 
 			return err
 		}
 	}
+	if err := writeDays(tx, hs.days); err != nil {
+		return err
+	}
 	for icao, sn := range hs.seen {
 		if _, err := tx.Exec(`INSERT INTO aircraft_seen (icao, first_seen, last_seen) VALUES (?, ?, ?)
 			ON CONFLICT (icao) DO UPDATE SET first_seen = min(first_seen, excluded.first_seen),
@@ -849,6 +863,9 @@ func (s *Store) pruneRollups(now time.Time) error {
 		if _, err := s.db.Exec(`DELETE FROM `+q.table+` WHERE `+q.column+` < ?`, q.v); err != nil {
 			return fmt.Errorf("%s: %w", q.table, err)
 		}
+	}
+	if _, err := s.db.Exec(`DELETE FROM daily_aircraft WHERE day < ?`, dayOf(cut, s.location())); err != nil {
+		return fmt.Errorf("daily_aircraft: %w", err)
 	}
 	return nil
 }

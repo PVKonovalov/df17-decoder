@@ -131,6 +131,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/stats/range-daily", s.statsRangeDaily)
 	mux.HandleFunc("GET /api/stats/altitude", s.statsAltitude)
 	mux.HandleFunc("GET /api/stats/notable", s.statsNotable)
+	mux.HandleFunc("GET /api/stats/daily", s.statsDaily)
+	mux.HandleFunc("GET /api/stats/new", s.statsNew)
 	mux.HandleFunc("GET /api/tape/extent", s.tapeExtent)
 	mux.HandleFunc("GET /api/receiver", s.receiver)
 	mux.HandleFunc("GET /api/map", s.mapConfig)

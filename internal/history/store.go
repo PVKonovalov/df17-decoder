@@ -37,8 +37,9 @@ type Options struct {
 	ResumeWithin time.Duration // open flights last seen within this before now are kept open for the tracker to resume; 0 closes all
 	ResumeTrail  time.Duration // trail length loaded with a resumed flight
 
-	Receiver       *geo.Point    // for the rollups' max range; nil leaves it unknown
-	StatsRetention time.Duration // rollups older than this are deleted daily; 0 keeps them
+	Receiver       *geo.Point     // for the rollups' max range; nil leaves it unknown
+	StatsRetention time.Duration  // rollups older than this are deleted daily; 0 keeps them
+	Location       *time.Location // the days of daily_aircraft (stats.timezone); time.Local when nil
 }
 
 // Stats are the store's counters.

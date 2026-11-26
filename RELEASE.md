@@ -69,3 +69,6 @@
 - 2026-11-26: History section in the detail panel (summary, paged flights, Play), dashed stored tracks on the map (hover info, fit once, max 20, cached); URL flights=.
 - 2026-11-26: Flight profile (lazy ECharts: altitude, ground speed or Mode-S squawks) with hover shared with the map track; URL profile=; Play fix at tape start; README and CLAUDE.md.
 - 2026-11-26: Closing the detail panel (map click or ×) keeps the stored tracks; a 'Clear tracks (N)' map chip removes them; another selection still replaces them.
+- 2026-11-26: stats.timezone; daily_aircraft (schema v9): one row per aircraft and local day from the hourly rollup, background build/rebuild on tz change, retention; days seen uses it.
+- 2026-11-26: GET /api/stats/daily (aircraft, new, returning per day in stats.timezone; learning, partial, approximate) and /api/stats/new?day=; fixtures, TS types.
+- 2026-11-26: Statistics: Today/Yesterday tiles, 'Aircraft per day' (new vs returning, % new, hatched learning days), 'New on <day>' list linking to history; README definitions.

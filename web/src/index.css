@@ -1733,3 +1733,54 @@ body {
 .tracks-chip:hover {
   background: var(--sel-bg);
 }
+
+/* Statistics: today and yesterday, new aircraft of a day */
+.daily-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.daily-tile {
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.daily-tile-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.daily-tile-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  margin: 2px 0;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-tile-sep {
+  margin-right: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.daily-tile-split {
+  font-size: 12px;
+}
+
+.daily-new-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.daily-new-head h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
